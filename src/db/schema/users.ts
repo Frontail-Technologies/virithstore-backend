@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, boolean, timestamp, pgEnum, integer } from "drizzle-orm/pg-core";
 
 export const userRoleEnum = pgEnum("user_role", ["admin", "user"]);
 export const authProviderEnum = pgEnum("auth_provider", ["email", "google", "telegram"]);
@@ -12,6 +12,10 @@ export const users = pgTable("users", {
   telegramId: varchar("telegram_id", { length: 255 }).unique(),
   authProvider: authProviderEnum("auth_provider").default("email").notNull(),
   role: userRoleEnum("role").default("user").notNull(),
+  walletPoints: integer("wallet_points").default(0).notNull(),
+  referralCode: varchar("referral_code", { length: 20 }).unique(),
+  referredBy: uuid("referred_by"),
+  totalReferralPointsEarned: integer("total_referral_points_earned").default(0).notNull(),
   isVerified: boolean("is_verified").default(false).notNull(),
   isBlocked: boolean("is_blocked").default(false).notNull(),
   isDeleted: boolean("is_deleted").default(false).notNull(),

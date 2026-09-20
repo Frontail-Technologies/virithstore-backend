@@ -101,6 +101,22 @@ export class OrdersService {
 
     // 5. Generate order number
     const orderNumber = `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const isPointsPayment = data.paymentMethod === "points";
+
+    // If paying with points, verify user and deduct points
+    if (isPointsPayment) {
+      if (!data.userId) {
+        throw new AppError("You must be logged in to pay with Virith Points", 401);
+      }
+      const pointsRequired = Math.round(price * 100);
+      const { WalletService } = await import("../wallet/wallet.service");
+      await WalletService.adjustPoints({
+        userId: data.userId,
+        points: -pointsRequired,
+        type: "order_payment",
+        description: `Instant Points checkout: ${product.name} - ${pkg.name || pkg.amount} (${pointsRequired} PTS)`,
+      });
+    }
 
     const [order] = await db
       .insert(orders)
@@ -118,9 +134,9 @@ export class OrdersService {
         originalPrice: originalPrice.toFixed(2),
         couponCode: data.couponCode || null,
         discount: discount.toFixed(2),
-        status: "pending",
+        status: isPointsPayment ? "processing" : "pending",
         paymentMethod: data.paymentMethod || "aba-khqr",
-        paymentStatus: "pending",
+        paymentStatus: isPointsPayment ? "paid" : "pending",
         credentials: data.credentials,
         deliveryData: reservedAccountId ? { reservedAccountId } : undefined,
       })
@@ -129,10 +145,15 @@ export class OrdersService {
     // Log creation
     await db.insert(orderLogs).values({
       orderId: order.id,
-      action: "ORDER_CREATED",
+      action: isPointsPayment ? "ORDER_PAID_WITH_POINTS" : "ORDER_CREATED",
       performedBy: data.userEmail || data.userId || "guest",
-      details: { price, credentials: data.credentials },
+      details: { price, credentials: data.credentials, isPointsPayment },
     });
+
+    if (isPointsPayment) {
+      const fulfilled = await this.fulfillOrder(order.id);
+      return fulfilled || order;
+    }
 
     return order;
   }
@@ -200,6 +221,14 @@ export class OrdersService {
           details: { accountId: account.id },
         });
 
+        // Trigger referral commission reward
+        try {
+          const { ReferralsService } = await import("../referrals/referrals.service");
+          await ReferralsService.processOrderReferral(fulfilled);
+        } catch (refErr) {
+          console.error("Referral reward error on account delivery:", refErr);
+        }
+
         return fulfilled;
       }
 
@@ -226,6 +255,14 @@ export class OrdersService {
       .set({ status: "completed", updatedAt: new Date() })
       .where(eq(orders.id, orderId))
       .returning();
+
+    // Trigger referral commission reward
+    try {
+      const { ReferralsService } = await import("../referrals/referrals.service");
+      await ReferralsService.processOrderReferral(completed);
+    } catch (refErr) {
+      console.error("Referral reward error on completion:", refErr);
+    }
 
     return completed;
   }

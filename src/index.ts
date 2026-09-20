@@ -25,6 +25,8 @@ import { marketRoutes } from "./modules/market/market.routes";
 import { accountsRoutes } from "./modules/accounts/accounts.routes";
 import { orderLogsRoutes } from "./modules/orderLogs/orderLogs.routes";
 import { giftTransactionsRoutes } from "./modules/gifts/gifts.routes";
+import { walletRoutes, adminWalletRoutes } from "./modules/wallet/wallet.routes";
+import { referralsRoutes, adminReferralsRoutes } from "./modules/referrals/referrals.routes";
 
 const PG_CLIENT_ERROR_CODES: Record<
   string,
@@ -129,7 +131,11 @@ const app = new Elysia()
       .use(eventsRoutes)
       .use(marketRoutes)
       .use(accountsRoutes)
-      .use(orderLogsRoutes),
+      .use(orderLogsRoutes)
+      .use(walletRoutes)
+      .use(adminWalletRoutes)
+      .use(referralsRoutes)
+      .use(adminReferralsRoutes),
   )
   .group("/api/v1", (api) =>
     api
@@ -149,7 +155,11 @@ const app = new Elysia()
       .use(eventsRoutes)
       .use(marketRoutes)
       .use(accountsRoutes)
-      .use(orderLogsRoutes),
+      .use(orderLogsRoutes)
+      .use(walletRoutes)
+      .use(adminWalletRoutes)
+      .use(referralsRoutes)
+      .use(adminReferralsRoutes),
   )
   .listen({
     port: env.PORT,

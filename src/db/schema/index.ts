@@ -11,3 +11,5 @@ export * from "./settings";
 export * from "./events";
 export * from "./marketAccounts";
 export * from "./accountsVault";
+export * from "./wallet";
+export * from "./referrals";

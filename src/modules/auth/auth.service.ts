@@ -8,7 +8,7 @@ import { env } from "../../config/env";
 import { AppError, UnauthorizedError } from "../../shared/errors";
 
 export class AuthService {
-  static async register(email: string, password: string, name?: string) {
+  static async register(email: string, password: string, name?: string, referralCode?: string) {
     const [existing] = await db
       .select()
       .from(users)
@@ -19,7 +19,21 @@ export class AuthService {
       throw new AppError("Email already registered", 400);
     }
 
+    // Resolve referrer if code was provided
+    let referredBy: string | null = null;
+    if (referralCode) {
+      const [referrer] = await db
+        .select()
+        .from(users)
+        .where(eq(users.referralCode, referralCode.trim().toUpperCase()))
+        .limit(1);
+      if (referrer) {
+        referredBy = referrer.id;
+      }
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
+    const newRefCode = "VRT-" + crypto.randomBytes(3).toString("hex").toUpperCase();
 
     const [user] = await db
       .insert(users)
@@ -29,6 +43,9 @@ export class AuthService {
         name: name || email.split("@")[0],
         authProvider: "email",
         role: "user",
+        referralCode: newRefCode,
+        referredBy: referredBy || undefined,
+        walletPoints: 0,
         isVerified: true,
       })
       .returning();
@@ -42,6 +59,8 @@ export class AuthService {
         name: user.name,
         role: user.role,
         image: user.image,
+        referralCode: user.referralCode,
+        walletPoints: user.walletPoints || 0,
       },
       token,
     };
@@ -165,6 +184,7 @@ export class AuthService {
       .limit(1);
 
     if (!user) {
+      const newRefCode = "VRT-" + crypto.randomBytes(3).toString("hex").toUpperCase();
       [user] = await db
         .insert(users)
         .values({
@@ -173,6 +193,8 @@ export class AuthService {
           image: data.image || null,
           authProvider: (data.provider as "email" | "google" | "telegram") || "google",
           role: isAdminEmail ? "admin" : "user",
+          referralCode: newRefCode,
+          walletPoints: 0,
           isVerified: true,
         })
         .returning();
