@@ -32,6 +32,15 @@ export const requireAdminPlugin = new Elysia({ name: "require-admin-plugin" })
       const userEmail = (user?.email || tokenEmail).toLowerCase();
       const isAdmin = user?.role === "admin" || decoded?.role === "admin" || ADMIN_EMAILS.includes(userEmail) || ADMIN_EMAILS.includes(tokenEmail);
 
+      if (!user && tokenEmail) {
+        const [userByEmail] = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, tokenEmail))
+          .limit(1);
+        if (userByEmail) user = userByEmail;
+      }
+
       if (!user) {
         if (isAdmin) {
           user = {

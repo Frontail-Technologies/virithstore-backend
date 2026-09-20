@@ -48,11 +48,20 @@ export const requireAuthPlugin = new Elysia({ name: "require-auth-plugin" })
 
     try {
       const decoded = jwt.verify(bearer, env.JWT_SECRET) as TokenPayload;
-      const [user] = await db
+      let [user] = await db
         .select()
         .from(users)
         .where(eq(users.id, decoded.userId))
         .limit(1);
+
+      if (!user && decoded.email) {
+        const [userByEmail] = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, decoded.email.toLowerCase()))
+          .limit(1);
+        if (userByEmail) user = userByEmail;
+      }
 
       if (!user || user.isBlocked || user.isDeleted) {
         throw new UnauthorizedError("User not found or account deactivated");
