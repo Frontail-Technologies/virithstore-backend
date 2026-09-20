@@ -112,14 +112,21 @@ async function seed() {
     await db.insert(sliders).values([
       {
         images: [
-          { url: "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=1600&auto=format&fit=crop&q=80" },
-          { url: "https://images.unsplash.com/photo-1614680376593-902f749f7ffc?w=1600&auto=format&fit=crop&q=80" },
-          { url: "https://images.unsplash.com/photo-1677442136019-21780efad99a?w=1600&auto=format&fit=crop&q=80" },
-          { url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1600&auto=format&fit=crop&q=80" },
+          { url: "/images/banners/banner-1.jpg" },
+          { url: "/images/banners/banner-2.jpg" },
+          { url: "/images/banners/banner-3.jpg" },
         ],
       },
     ]);
     console.log("✅ Hero Sliders & Banners seeded");
+  } else {
+    await db.update(sliders).set({
+      images: [
+        { url: "/images/banners/banner-1.jpg" },
+        { url: "/images/banners/banner-2.jpg" },
+        { url: "/images/banners/banner-3.jpg" },
+      ],
+    });
   }
 
   // 4. Seed Products
