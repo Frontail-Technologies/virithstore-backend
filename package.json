@@ -1,0 +1,36 @@
+{
+  "name": "virithstore-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun run src/db/migrate.ts",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "elysia": "latest",
+    "@elysiajs/cors": "latest",
+    "@elysiajs/bearer": "latest",
+    "@elysiajs/swagger": "latest",
+    "drizzle-orm": "latest",
+    "postgres": "latest",
+    "zod": "latest",
+    "bcryptjs": "latest",
+    "jsonwebtoken": "latest",
+    "@types/jsonwebtoken": "latest",
+    "@types/bcryptjs": "latest",
+    "nodemailer": "latest",
+    "@types/nodemailer": "latest",
+    "cloudinary": "latest",
+    "uuid": "latest",
+    "@types/uuid": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "drizzle-kit": "latest",
+    "typescript": "^5"
+  }
+}
