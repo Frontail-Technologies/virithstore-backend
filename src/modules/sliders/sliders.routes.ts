@@ -4,17 +4,24 @@ import { ok, created } from "../../shared/response";
 import { requireAdmin } from "../../middleware/admin.middleware";
 
 export const slidersRoutes = new Elysia({ prefix: "/sliders" })
-  .get("/", async () => {
-    const list = await SlidersService.getAll();
+  .get("/", async ({ query }) => {
+    const type = (query as any)?.type;
+    const list = await SlidersService.getAll(type);
     return ok(list);
   })
+  .get("/type/:type", async ({ params }) => {
+    const item = await SlidersService.getByType(params.type);
+    return ok(item);
+  })
   .use(requireAdmin)
-  .get("/admin/all", async () => {
-    const list = await SlidersService.getAll();
+  .get("/admin/all", async ({ query }) => {
+    const type = (query as any)?.type;
+    const list = await SlidersService.getAll(type);
     return ok(list);
   })
   .post("/", async ({ body }) => {
-    const item = await SlidersService.create((body as any)?.images || []);
+    const type = (body as any)?.type || "home";
+    const item = await SlidersService.create((body as any)?.images || [], type);
     return created(item, "Slider created successfully");
   })
   .put("/:id", async ({ params, body }) => {
