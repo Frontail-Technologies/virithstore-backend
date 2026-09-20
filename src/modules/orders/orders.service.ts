@@ -377,6 +377,16 @@ export class OrdersService {
       details: { status, deliveryData },
     });
 
+    // Trigger referral commission reward if completed
+    if (status === "completed") {
+      try {
+        const { ReferralsService } = await import("../referrals/referrals.service");
+        await ReferralsService.processOrderReferral(updated);
+      } catch (refErr) {
+        console.error("Referral reward error on admin order completion:", refErr);
+      }
+    }
+
     return updated;
   }
 

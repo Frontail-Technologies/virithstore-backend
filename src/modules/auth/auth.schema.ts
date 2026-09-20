@@ -4,6 +4,7 @@ export const RegisterSchema = t.Object({
   email: t.String({ format: "email" }),
   password: t.String({ minLength: 6 }),
   name: t.Optional(t.String()),
+  referralCode: t.Optional(t.String()),
 });
 
 export const LoginSchema = t.Object({

@@ -139,22 +139,32 @@ export class ReferralsService {
   static async processOrderReferral(order: {
     id: string;
     userId?: string | null;
+    userEmail?: string | null;
     price: string | number;
   }) {
-    if (!order.userId) return;
-
     const config = await this.getConfig();
     if (!config.isEnabled) return;
 
     const orderAmount = Number(order.price) || 0;
     if (orderAmount < (config.minOrderAmount || 1.0)) return;
 
-    // Check if buyer was referred by someone
-    const [buyer] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, order.userId))
-      .limit(1);
+    // Check if buyer exists via userId or userEmail
+    let buyer: any = null;
+    if (order.userId) {
+      const [found] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, order.userId))
+        .limit(1);
+      buyer = found;
+    } else if (order.userEmail) {
+      const [found] = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, order.userEmail.toLowerCase()))
+        .limit(1);
+      buyer = found;
+    }
 
     if (!buyer || !buyer.referredBy) return;
 

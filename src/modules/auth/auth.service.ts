@@ -101,6 +101,13 @@ export class AuthService {
         .where(eq(users.id, user.id));
     }
 
+    // Ensure referralCode exists
+    if (!user.referralCode) {
+      const newRefCode = "VRT-" + crypto.randomBytes(3).toString("hex").toUpperCase();
+      await db.update(users).set({ referralCode: newRefCode }).where(eq(users.id, user.id));
+      user.referralCode = newRefCode;
+    }
+
     const token = this.generateToken(user.id, user.role, user.email || undefined);
 
     return {
@@ -110,6 +117,8 @@ export class AuthService {
         name: user.name,
         role: user.role,
         image: user.image,
+        referralCode: user.referralCode,
+        walletPoints: user.walletPoints || 0,
       },
       token,
     };
@@ -123,11 +132,12 @@ export class AuthService {
     photo_url?: string;
     auth_date: string;
     hash: string;
+    referralCode?: string;
   }) {
     if (env.TELEGRAM_BOT_TOKEN) {
       const secretKey = crypto.createHash("sha256").update(env.TELEGRAM_BOT_TOKEN.trim()).digest();
       const checkString = Object.entries(data)
-        .filter(([key]) => key !== "hash")
+        .filter(([key]) => key !== "hash" && key !== "referralCode")
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([k, v]) => `${k}=${v}`)
         .join("\n");
@@ -145,7 +155,18 @@ export class AuthService {
       .limit(1);
 
     if (!user) {
+      let referredBy: string | null = null;
+      if (data.referralCode) {
+        const [referrer] = await db
+          .select()
+          .from(users)
+          .where(eq(users.referralCode, data.referralCode.trim().toUpperCase()))
+          .limit(1);
+        if (referrer) referredBy = referrer.id;
+      }
+
       const displayName = [data.first_name, data.last_name].filter(Boolean).join(" ");
+      const newRefCode = "VRT-" + crypto.randomBytes(3).toString("hex").toUpperCase();
       [user] = await db
         .insert(users)
         .values({
@@ -154,9 +175,16 @@ export class AuthService {
           image: data.photo_url || null,
           authProvider: "telegram",
           role: "user",
+          referralCode: newRefCode,
+          referredBy: referredBy || undefined,
+          walletPoints: 0,
           isVerified: true,
         })
         .returning();
+    } else if (!user.referralCode) {
+      const newRefCode = "VRT-" + crypto.randomBytes(3).toString("hex").toUpperCase();
+      await db.update(users).set({ referralCode: newRefCode }).where(eq(users.id, user.id));
+      user.referralCode = newRefCode;
     }
 
     const token = this.generateToken(user.id, user.role, user.email || undefined, user.telegramId || undefined);
@@ -168,12 +196,14 @@ export class AuthService {
         telegramId: user.telegramId,
         role: user.role,
         image: user.image,
+        referralCode: user.referralCode,
+        walletPoints: user.walletPoints || 0,
       },
       token,
     };
   }
 
-  static async oauthAuth(data: { email: string; name?: string; image?: string; provider?: string }) {
+  static async oauthAuth(data: { email: string; name?: string; image?: string; provider?: string; referralCode?: string }) {
     const ADMIN_EMAILS = ["arbazrmr123@gmail.com", "arbazmr123@gmail.com", "admin@virithstore.com"];
     const isAdminEmail = ADMIN_EMAILS.includes(data.email.toLowerCase());
 
@@ -184,6 +214,16 @@ export class AuthService {
       .limit(1);
 
     if (!user) {
+      let referredBy: string | null = null;
+      if (data.referralCode) {
+        const [referrer] = await db
+          .select()
+          .from(users)
+          .where(eq(users.referralCode, data.referralCode.trim().toUpperCase()))
+          .limit(1);
+        if (referrer) referredBy = referrer.id;
+      }
+
       const newRefCode = "VRT-" + crypto.randomBytes(3).toString("hex").toUpperCase();
       [user] = await db
         .insert(users)
@@ -194,6 +234,7 @@ export class AuthService {
           authProvider: (data.provider as "email" | "google" | "telegram") || "google",
           role: isAdminEmail ? "admin" : "user",
           referralCode: newRefCode,
+          referredBy: referredBy || undefined,
           walletPoints: 0,
           isVerified: true,
         })
@@ -203,6 +244,9 @@ export class AuthService {
       if (data.name) updates.name = data.name;
       if (data.image) updates.image = data.image;
       if (isAdminEmail && user.role !== "admin") updates.role = "admin";
+      if (!user.referralCode) {
+        updates.referralCode = "VRT-" + crypto.randomBytes(3).toString("hex").toUpperCase();
+      }
 
       [user] = await db
         .update(users)
@@ -220,6 +264,8 @@ export class AuthService {
         name: user.name,
         role: user.role,
         image: user.image,
+        referralCode: user.referralCode,
+        walletPoints: user.walletPoints || 0,
       },
       token,
     };
