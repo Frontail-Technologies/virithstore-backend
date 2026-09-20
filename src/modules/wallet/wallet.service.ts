@@ -130,17 +130,5 @@ export class WalletService {
       };
     });
   }
-
-  /**
-   * Point top-up packages list
-   */
-  static getTopUpPackages() {
-    return [
-      { id: "pkg_500", name: "Starter Pack", usdPrice: 5.0, points: 500, bonusPoints: 0, tag: null },
-      { id: "pkg_1000", name: "Popular Pack", usdPrice: 10.0, points: 1000, bonusPoints: 50, tag: "POPULAR" },
-      { id: "pkg_2000", name: "Pro Gamer Pack", usdPrice: 20.0, points: 2000, bonusPoints: 150, tag: "HOT" },
-      { id: "pkg_5000", name: "Ultimate VIP Pack", usdPrice: 50.0, points: 5000, bonusPoints: 500, tag: "BEST VALUE" },
-      { id: "pkg_10000", name: "Legendary Vault", usdPrice: 100.0, points: 10000, bonusPoints: 1200, tag: "12% BONUS" },
-    ];
-  }
 }
+

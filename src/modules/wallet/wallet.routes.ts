@@ -5,11 +5,6 @@ import { requireAdminPlugin } from "../../middleware/admin.middleware";
 import { ok } from "../../shared/response";
 
 export const walletRoutes = new Elysia({ prefix: "/wallet" })
-  // Public package list
-  .get("/packages", () => {
-    return ok(WalletService.getTopUpPackages());
-  })
-
   // User auth required
   .use(requireAuthPlugin)
   .get("/me", async ({ user }) => {
