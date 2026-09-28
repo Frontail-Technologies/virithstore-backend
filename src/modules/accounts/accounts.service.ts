@@ -38,11 +38,23 @@ export class AccountsVaultService {
   }
 
   static async upsertAccount(id?: string, data?: any) {
-    if (id) {
+    const isUUID = (str?: string | null) =>
+      typeof str === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+    const cleanData = { ...data };
+    delete cleanData.id;
+    delete cleanData._id;
+
+    if (cleanData.productId !== undefined) {
+      cleanData.productId = isUUID(cleanData.productId) ? cleanData.productId : null;
+    }
+
+    if (id && isUUID(id)) {
       const [updated] = await db
         .update(accountsVault)
         .set({
-          ...data,
+          ...cleanData,
           updatedAt: new Date(),
         })
         .where(eq(accountsVault.id, id))
@@ -51,7 +63,7 @@ export class AccountsVaultService {
     } else {
       const [created] = await db
         .insert(accountsVault)
-        .values(data)
+        .values(cleanData)
         .returning();
       return created;
     }

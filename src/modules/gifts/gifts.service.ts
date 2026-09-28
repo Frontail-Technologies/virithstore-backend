@@ -144,14 +144,16 @@ export class GiftsService {
   }
 
   static async create(data: NewGift) {
-    const [created] = await db.insert(gifts).values(data).returning();
+    const { id, _id, ...cleanData } = (data || {}) as any;
+    const [created] = await db.insert(gifts).values(cleanData).returning();
     return created;
   }
 
   static async update(id: string, data: Partial<NewGift>) {
+    const { id: _, _id, ...cleanData } = (data || {}) as any;
     const [updated] = await db
       .update(gifts)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...cleanData, updatedAt: new Date() })
       .where(eq(gifts.id, id))
       .returning();
 

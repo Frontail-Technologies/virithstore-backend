@@ -118,11 +118,15 @@ export class OrdersService {
       });
     }
 
+    const isUUID = (str?: string | null) =>
+      typeof str === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
     const [order] = await db
       .insert(orders)
       .values({
         orderNumber,
-        userId: data.userId || null,
+        userId: isUUID(data.userId) ? data.userId : null,
         userEmail: data.userEmail || null,
         productId: product.id,
         productName: product.name,
