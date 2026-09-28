@@ -28,6 +28,6 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
     return ok(updated, "User updated successfully");
   })
   .delete("/admin/:id", async ({ params }) => {
-    const deleted = await UsersService.softDelete(params.id);
-    return ok(deleted, "User deleted successfully");
+    const deleted = await UsersService.hardDelete(params.id);
+    return ok(deleted, "User permanently deleted");
   });

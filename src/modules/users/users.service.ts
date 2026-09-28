@@ -122,12 +122,11 @@ export class UsersService {
     return updated;
   }
 
-  static async softDelete(id: string) {
+  static async hardDelete(id: string) {
     const [deleted] = await db
-      .update(users)
-      .set({ isDeleted: true, updatedAt: new Date() })
+      .delete(users)
       .where(eq(users.id, id))
-      .returning({ id: users.id, email: users.email, isDeleted: users.isDeleted });
+      .returning({ id: users.id, email: users.email });
 
     if (!deleted) throw new NotFoundError("User not found");
     return deleted;

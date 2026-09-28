@@ -104,14 +104,41 @@ export class ProductsService {
     return product;
   }
 
-  static async create(data: NewProduct) {
-    const resolved = await resolveImages(data, "virithstore/products");
+  static async create(data: any) {
+    const isUUID = (str?: string | null) => typeof str === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+    const cleanData: any = { ...data };
+    if (!isUUID(cleanData.id)) {
+      delete cleanData.id;
+    }
+    delete cleanData._id;
+
+    if (!isUUID(cleanData.categoryId)) {
+      cleanData.categoryId = null;
+    }
+
+    if (!Array.isArray(cleanData.slides)) cleanData.slides = [];
+    if (!Array.isArray(cleanData.cost)) cleanData.cost = [];
+    if (!Array.isArray(cleanData.fields)) cleanData.fields = [];
+    if (!Array.isArray(cleanData.spinCostIds)) cleanData.spinCostIds = [];
+
+    const resolved = await resolveImages(cleanData, "virithstore/products");
     const [created] = await db.insert(products).values(resolved).returning();
     return created;
   }
 
-  static async update(id: string, data: Partial<NewProduct>) {
-    const resolved = await resolveImages(data, "virithstore/products");
+  static async update(id: string, data: any) {
+    const isUUID = (str?: string | null) => typeof str === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+    const cleanData: any = { ...data };
+    delete cleanData.id;
+    delete cleanData._id;
+
+    if (cleanData.categoryId !== undefined && !isUUID(cleanData.categoryId)) {
+      cleanData.categoryId = null;
+    }
+
+    const resolved = await resolveImages(cleanData, "virithstore/products");
     const [updated] = await db
       .update(products)
       .set({ ...resolved, updatedAt: new Date() })
