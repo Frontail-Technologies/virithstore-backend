@@ -18,7 +18,7 @@ export class SpinService {
    * spinCostIds). Spins are an earned feature, not something every visitor gets.
    */
   static async grantCredit(userId: string, orderId: string) {
-    const [credit] = await db.insert(spinCredits).values({ userId, orderId }).returning();
+    const [credit] = await db.insert(spinCredits).values({ userId, orderId }).onConflictDoNothing().returning();
     return credit;
   }
 

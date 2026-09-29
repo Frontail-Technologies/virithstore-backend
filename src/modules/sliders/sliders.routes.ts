@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { SlidersService } from "./sliders.service";
+import { getActiveHeroSlides, SlidersService } from "./sliders.service";
 import { ok, created } from "../../shared/response";
 import { requireAdmin } from "../../middleware/admin.middleware";
 
@@ -7,11 +7,15 @@ export const slidersRoutes = new Elysia({ prefix: "/sliders" })
   .get("/", async ({ query }) => {
     const type = (query as any)?.type;
     const list = await SlidersService.getAll(type);
-    return ok(list);
+    return ok(list.map((slider) => ({
+      id: slider.id,
+      type: slider.type,
+      images: getActiveHeroSlides(slider.images),
+    })));
   })
   .get("/type/:type", async ({ params }) => {
     const item = await SlidersService.getByType(params.type);
-    return ok(item);
+    return ok(item ? { id: item.id, type: item.type, images: getActiveHeroSlides(item.images) } : null);
   })
   .use(requireAdmin)
   .get("/admin/all", async ({ query }) => {

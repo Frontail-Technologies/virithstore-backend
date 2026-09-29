@@ -4,10 +4,12 @@ import { orders } from "../../db/schema/orders";
 import { users } from "../../db/schema/users";
 import { eq, desc, sql } from "drizzle-orm";
 import { NotFoundError, AppError } from "../../shared/errors";
+import type { GiftProgressResponse } from "./gift.contract";
 
 export class GiftsService {
   static async getAll() {
-    return await db.select().from(gifts).orderBy(desc(gifts.requiredWagering));
+    const rows = await db.select().from(gifts).where(eq(gifts.isActive, true)).orderBy(desc(gifts.requiredWagering));
+    return rows.map(({ claimedBy: _claimedBy, ...gift }) => gift);
   }
 
   static async getById(id: string) {
@@ -16,7 +18,7 @@ export class GiftsService {
     return gift;
   }
 
-  static async getUserWagering(userId: string) {
+  static async getUserWagering(userId: string): Promise<GiftProgressResponse> {
     const [result] = await db
       .select({
         totalSpent: sql<string>`COALESCE(SUM(${orders.price}), 0)::text`,

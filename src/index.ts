@@ -27,6 +27,7 @@ import { orderLogsRoutes } from "./modules/orderLogs/orderLogs.routes";
 import { giftTransactionsRoutes } from "./modules/gifts/gifts.routes";
 import { walletRoutes, adminWalletRoutes } from "./modules/wallet/wallet.routes";
 import { referralsRoutes, adminReferralsRoutes } from "./modules/referrals/referrals.routes";
+import { homepageRoutes } from "./modules/homepage/homepage.routes";
 
 const PG_CLIENT_ERROR_CODES: Record<
   string,
@@ -44,7 +45,7 @@ const app = new Elysia()
   .onError(({ code, error, set }) => {
     if (error instanceof AppError) {
       set.status = error.statusCode;
-      return fail(error.message, { code: error.code });
+      return fail(error.message, { code: error.code, details: error.details });
     }
 
     if (code === "NOT_FOUND" || (error as any)?.code === "NOT_FOUND") {
@@ -71,7 +72,7 @@ const app = new Elysia()
       origin: [env.CORS_ORIGIN, "http://localhost:3000"],
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-      allowedHeaders: ["Content-Type", "Authorization"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Checkout-Token"],
     }),
   )
   // Swagger documentation
@@ -135,7 +136,8 @@ const app = new Elysia()
       .use(walletRoutes)
       .use(adminWalletRoutes)
       .use(referralsRoutes)
-      .use(adminReferralsRoutes),
+      .use(adminReferralsRoutes)
+      .use(homepageRoutes),
   )
   .group("/api/v1", (api) =>
     api
@@ -159,7 +161,8 @@ const app = new Elysia()
       .use(walletRoutes)
       .use(adminWalletRoutes)
       .use(referralsRoutes)
-      .use(adminReferralsRoutes),
+      .use(adminReferralsRoutes)
+      .use(homepageRoutes),
   )
   .listen({
     port: env.PORT,
