@@ -2,11 +2,14 @@ import { db } from "../../db/client";
 import { orders, type NewOrder } from "../../db/schema/orders";
 import { orderLogs } from "../../db/schema/orderLogs";
 import { products } from "../../db/schema/products";
-import { coupons } from "../../db/schema/coupons";
+import { coupons, couponReservations } from "../../db/schema/coupons";
 import { users } from "../../db/schema/users";
 import { accountsVault } from "../../db/schema/accountsVault";
 import { eq, and, or, desc, sql, gte, lt } from "drizzle-orm";
 import { NotFoundError, AppError } from "../../shared/errors";
+import { validateCredentials } from "./credential-validation";
+import { createCheckoutToken } from "./checkout-access";
+import { ProductsService } from "../products/products.service";
 
 export class OrdersService {
   static async createOrder(data: {
@@ -15,20 +18,17 @@ export class OrdersService {
     productId: string;
     packageId: string;
     couponCode?: string;
-    credentials: Record<string, any>;
+    credentials?: Record<string, unknown>;
     paymentMethod?: string;
   }) {
     // 1. Fetch product
-    const [product] = await db
-      .select()
-      .from(products)
-      .where(eq(products.id, data.productId))
-      .limit(1);
+    const product = await ProductsService.getById(data.productId);
 
     if (!product || !product.isAvailable) {
       throw new AppError("Product is currently unavailable", 400);
     }
 
+    const credentials = validateCredentials(product.fields || [], data.credentials);
     // 2. Match package
     const pkg = product.cost.find((c) => c.id === data.packageId);
     if (!pkg) {
@@ -39,7 +39,9 @@ export class OrdersService {
     const originalPrice = price;
     let discount = 0;
 
-    // 3. Apply coupon if provided
+    let selectedCoupon: typeof coupons.$inferSelect | null = null;
+
+    // 3. Validate a coupon. Capacity is reserved in the order transaction below.
     if (data.couponCode) {
       const [coupon] = await db
         .select()
@@ -47,84 +49,67 @@ export class OrdersService {
         .where(eq(coupons.code, data.couponCode.toUpperCase()))
         .limit(1);
 
-      if (coupon && coupon.isActive) {
-        const minOrder = parseFloat(coupon.minOrderAmount);
-        if (price >= minOrder) {
-          if (coupon.discountType === "percentage") {
-            const discVal = parseFloat(coupon.discountValue);
-            discount = (price * discVal) / 100;
-            if (coupon.maxDiscount) {
-              discount = Math.min(discount, parseFloat(coupon.maxDiscount));
-            }
-          } else {
-            discount = parseFloat(coupon.discountValue);
-          }
-          price = Math.max(0, price - discount);
-
-          // Increment coupon used count
-          await db
-            .update(coupons)
-            .set({ usedCount: sql`${coupons.usedCount} + 1` })
-            .where(eq(coupons.id, coupon.id));
-        }
+      if (!coupon || !coupon.isActive) throw new AppError("Invalid or inactive coupon code", 400);
+      if (coupon.expiresAt && coupon.expiresAt <= new Date()) throw new AppError("Coupon has expired", 400);
+      const minOrder = parseFloat(coupon.minOrderAmount);
+      if (price < minOrder) throw new AppError(`Minimum order amount for this coupon is $${minOrder}`, 400);
+      if (coupon.discountType === "percentage") {
+        discount = (price * parseFloat(coupon.discountValue)) / 100;
+        if (coupon.maxDiscount) discount = Math.min(discount, parseFloat(coupon.maxDiscount));
+      } else {
+        discount = parseFloat(coupon.discountValue);
       }
+      price = Math.max(0, price - discount);
+      selectedCoupon = coupon;
     }
 
-    // 4. Reserve stock for account-type products before charging the customer.
-    // Reservation expires after 15 minutes if payment never completes.
-    let reservedAccountId: string | null = null;
-    if (product.type === "account") {
-      const [availableAccount] = await db
-        .select()
-        .from(accountsVault)
-        .where(
-          and(
-            eq(accountsVault.productId, product.id),
-            eq(accountsVault.costId, pkg.id),
-            eq(accountsVault.isActive, true),
-            or(eq(accountsVault.isReserved, false), lt(accountsVault.reservedExpiry, new Date()))
-          )
-        )
-        .limit(1);
-
-      if (!availableAccount) {
-        throw new AppError("This package is currently out of stock", 400);
-      }
-
-      await db
-        .update(accountsVault)
-        .set({ isReserved: true, reservedExpiry: new Date(Date.now() + 15 * 60 * 1000), updatedAt: new Date() })
-        .where(eq(accountsVault.id, availableAccount.id));
-
-      reservedAccountId = availableAccount.id;
-    }
-
-    // 5. Generate order number
+    // 4. Generate order number and atomically claim inventory/coupon capacity.
     const orderNumber = `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const isPointsPayment = data.paymentMethod === "points";
-
-    // If paying with points, verify user and deduct points
-    if (isPointsPayment) {
-      if (!data.userId) {
-        throw new AppError("You must be logged in to pay with Virith Points", 401);
-      }
-      const pointsRequired = Math.round(price * 100);
-      const { WalletService } = await import("../wallet/wallet.service");
-      await WalletService.adjustPoints({
-        userId: data.userId,
-        points: -pointsRequired,
-        type: "order_payment",
-        description: `Instant Points checkout: ${product.name} - ${pkg.name || pkg.amount} (${pointsRequired} PTS)`,
-      });
-    }
-
     const isUUID = (str?: string | null) =>
       typeof str === "string" &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
-    const [order] = await db
-      .insert(orders)
-      .values({
+    if (isPointsPayment && !data.userId) throw new AppError("You must be logged in to pay with Virith Points", 401);
+
+    const order = await db.transaction(async (tx) => {
+      let reservedAccountId: string | null = null;
+      if (product.type === "account") {
+        const claimed = await tx.execute(sql`
+          UPDATE ${accountsVault}
+          SET ${accountsVault.isReserved} = true,
+              ${accountsVault.reservedExpiry} = NOW() + INTERVAL '15 minutes',
+              ${accountsVault.updatedAt} = NOW()
+          WHERE ${accountsVault.id} = (
+            SELECT ${accountsVault.id} FROM ${accountsVault}
+            WHERE ${accountsVault.productId} = ${product.id}
+              AND ${accountsVault.costId} = ${pkg.id}
+              AND ${accountsVault.isActive} = true
+              AND (${accountsVault.isReserved} = false OR ${accountsVault.reservedExpiry} < NOW())
+            ORDER BY ${accountsVault.createdAt}
+            FOR UPDATE SKIP LOCKED LIMIT 1
+          )
+          RETURNING ${accountsVault.id}
+        `);
+        reservedAccountId = (claimed as unknown as Array<{ id: string }>)[0]?.id || null;
+        if (!reservedAccountId) throw new AppError("This package is currently out of stock", 400);
+      }
+
+      if (selectedCoupon?.usageLimit) {
+        await tx.execute(sql`SELECT ${coupons.id} FROM ${coupons} WHERE ${coupons.id} = ${selectedCoupon.id} FOR UPDATE`);
+        const active = await tx.execute(sql`
+          SELECT count(*)::int AS count FROM ${couponReservations}
+          WHERE ${couponReservations.couponId} = ${selectedCoupon.id}
+            AND ${couponReservations.status} = 'reserved'
+            AND ${couponReservations.expiresAt} > NOW()
+        `);
+        const reservedCount = Number((active as unknown as Array<{ count: number }>)[0]?.count || 0);
+        if (selectedCoupon.usedCount + reservedCount >= selectedCoupon.usageLimit) {
+          throw new AppError("Coupon usage limit reached", 400);
+        }
+      }
+
+      const [createdOrder] = await tx.insert(orders).values({
         orderNumber,
         userId: isUUID(data.userId) ? data.userId : null,
         userEmail: data.userEmail || null,
@@ -136,30 +121,51 @@ export class OrdersService {
         packageName: pkg.name || pkg.amount || "Package",
         price: price.toFixed(2),
         originalPrice: originalPrice.toFixed(2),
-        couponCode: data.couponCode || null,
+        couponCode: selectedCoupon?.code || null,
         discount: discount.toFixed(2),
-        status: isPointsPayment ? "processing" : "pending",
+        status: "pending",
         paymentMethod: data.paymentMethod || "aba-khqr",
-        paymentStatus: isPointsPayment ? "paid" : "pending",
-        credentials: data.credentials,
+        paymentStatus: "pending",
+        credentials,
         deliveryData: reservedAccountId ? { reservedAccountId } : undefined,
-      })
-      .returning();
+      }).returning();
+
+      if (selectedCoupon) {
+        await tx.insert(couponReservations).values({
+          couponId: selectedCoupon.id,
+          orderId: createdOrder.id,
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        });
+      }
+      return createdOrder;
+    });
 
     // Log creation
     await db.insert(orderLogs).values({
       orderId: order.id,
       action: isPointsPayment ? "ORDER_PAID_WITH_POINTS" : "ORDER_CREATED",
       performedBy: data.userEmail || data.userId || "guest",
-      details: { price, credentials: data.credentials, isPointsPayment },
+      details: { price, credentialFields: Object.keys(credentials), isPointsPayment },
     });
 
     if (isPointsPayment) {
+      const pointsRequired = Math.round(price * 100);
+      const { WalletService } = await import("../wallet/wallet.service");
+      try {
+        await WalletService.adjustPoints({
+          userId: data.userId!, points: -pointsRequired, type: "order_payment",
+          description: `Instant Points checkout: ${product.name} - ${pkg.name || pkg.amount} (${pointsRequired} PTS)`,
+          orderId: order.id,
+        });
+      } catch (error) {
+        await this.failOrder(order.id, "Points payment failed");
+        throw error;
+      }
       const fulfilled = await this.fulfillOrder(order.id);
-      return fulfilled || order;
+      return { ...(fulfilled || order), checkoutToken: undefined };
     }
 
-    return order;
+    return { ...order, checkoutToken: order.userId ? undefined : createCheckoutToken(order.id) };
   }
 
   /**
@@ -170,6 +176,107 @@ export class OrdersService {
    * provider integration to call.
    */
   static async fulfillOrder(orderId: string) {
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT ${orders.id} FROM ${orders} WHERE ${orders.id} = ${orderId} FOR UPDATE`);
+      const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+      if (!order) throw new NotFoundError("Order not found");
+      if (order.fulfilledAt) return { order, newlyFulfilled: false };
+      if (["cancelled", "failed"].includes(order.status)) throw new AppError("Order is not payable", 409);
+
+      let deliveryData = order.deliveryData;
+      let status: "completed" | "pending" = "completed";
+      if (order.productType === "account") {
+        const reservedAccountId = (order.deliveryData as { reservedAccountId?: string } | null)?.reservedAccountId;
+        const [account] = reservedAccountId
+          ? await tx.select().from(accountsVault).where(and(
+              eq(accountsVault.id, reservedAccountId),
+              eq(accountsVault.isActive, true),
+              eq(accountsVault.isReserved, true),
+            )).limit(1)
+          : [];
+        if (!account) {
+          status = "pending";
+        } else {
+          await tx.update(accountsVault).set({
+            isActive: false, isReserved: false, reservedExpiry: null, updatedAt: new Date(),
+          }).where(and(eq(accountsVault.id, account.id), eq(accountsVault.isActive, true)));
+          deliveryData = { email: account.email, password: account.password, additionalInfo: account.additionalInfo };
+        }
+      }
+
+      const fulfilledAt = new Date();
+      if (order.couponCode && !order.couponRedeemedAt) {
+        const [reservation] = await tx.select().from(couponReservations)
+          .where(and(eq(couponReservations.orderId, order.id), eq(couponReservations.status, "reserved"))).limit(1);
+        if (reservation) {
+          await tx.execute(sql`SELECT ${coupons.id} FROM ${coupons} WHERE ${coupons.id} = ${reservation.couponId} FOR UPDATE`);
+          const [coupon] = await tx.select().from(coupons).where(eq(coupons.id, reservation.couponId)).limit(1);
+          if (!coupon || (coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit)) {
+            throw new AppError("Coupon capacity is no longer available", 409);
+          }
+          await tx.update(coupons).set({ usedCount: sql`${coupons.usedCount} + 1`, updatedAt: fulfilledAt })
+            .where(eq(coupons.id, coupon.id));
+          await tx.update(couponReservations).set({ status: "redeemed", redeemedAt: fulfilledAt })
+            .where(eq(couponReservations.id, reservation.id));
+        }
+      }
+
+      const [fulfilled] = await tx.update(orders).set({
+        paymentStatus: "paid",
+        status,
+        deliveryData,
+        couponRedeemedAt: order.couponCode ? fulfilledAt : null,
+        fulfilledAt,
+        updatedAt: fulfilledAt,
+      }).where(eq(orders.id, order.id)).returning();
+      return { order: fulfilled, newlyFulfilled: true };
+    });
+
+    if (!result.newlyFulfilled) return result.order;
+    await db.insert(orderLogs).values({
+      orderId,
+      action: result.order.status === "completed" ? "ORDER_FULFILLED" : "ACCOUNT_DELIVERY_PENDING",
+      performedBy: "Payment verification",
+      details: { status: result.order.status },
+    });
+
+    if (result.order.userId) {
+      const [product] = result.order.productId
+        ? await db.select().from(products).where(eq(products.id, result.order.productId)).limit(1)
+        : [];
+      if (product?.spinActive && product.spinCostIds.includes(result.order.packageId)) {
+        const { SpinService } = await import("../spin/spin.service");
+        await SpinService.grantCredit(result.order.userId, result.order.id);
+      }
+      try {
+        const { ReferralsService } = await import("../referrals/referrals.service");
+        await ReferralsService.processOrderReferral(result.order);
+      } catch (refErr) {
+        console.error("Referral reward error on fulfillment:", refErr);
+      }
+    }
+    return result.order;
+  }
+
+  static async failOrder(orderId: string, reason: string) {
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT ${orders.id} FROM ${orders} WHERE ${orders.id} = ${orderId} FOR UPDATE`);
+      const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+      if (!order || order.paymentStatus === "paid") return order || null;
+      const reservedAccountId = (order.deliveryData as { reservedAccountId?: string } | null)?.reservedAccountId;
+      if (reservedAccountId) {
+        await tx.update(accountsVault).set({ isReserved: false, reservedExpiry: null, updatedAt: new Date() })
+          .where(and(eq(accountsVault.id, reservedAccountId), eq(accountsVault.isActive, true)));
+      }
+      await tx.update(couponReservations).set({ status: "released" })
+        .where(and(eq(couponReservations.orderId, orderId), eq(couponReservations.status, "reserved")));
+      const [failed] = await tx.update(orders).set({ paymentStatus: "failed", status: "failed", notes: reason, updatedAt: new Date() })
+        .where(eq(orders.id, orderId)).returning();
+      return failed;
+    });
+  }
+
+  private static async fulfillOrderLegacy(orderId: string) {
     const [locked] = await db
       .update(orders)
       .set({ paymentStatus: "paid", status: "processing", updatedAt: new Date() })
@@ -446,8 +553,7 @@ export class OrdersService {
         .where(gte(orders.createdAt, todayStart)),
     ]);
 
-    // Total revenue & today & monthly income
-    const [incomeData] = await db
+    const incomeQuery = db
       .select({
         totalRevenue: sql<number>`coalesce(sum(case when ${orders.status} = 'completed' or ${orders.paymentStatus} = 'paid' then ${orders.price}::numeric else 0 end), 0)::float`,
         todaysIncome: sql<number>`coalesce(sum(case when (${orders.status} = 'completed' or ${orders.paymentStatus} = 'paid') and ${orders.createdAt} >= ${todayStart.toISOString()} then ${orders.price}::numeric else 0 end), 0)::float`,
@@ -456,7 +562,7 @@ export class OrdersService {
       .from(orders);
 
     // Weekly sales
-    const weeklySalesRows = await db
+    const weeklySalesQuery = db
       .select({
         _id: sql<string>`to_char(${orders.createdAt}, 'YYYY-MM-DD')`,
         total: sql<number>`coalesce(sum(${orders.price}::numeric), 0)::float`,
@@ -468,7 +574,7 @@ export class OrdersService {
       .orderBy(sql`to_char(${orders.createdAt}, 'YYYY-MM-DD')`);
 
     // Monthly sales
-    const monthlySalesRows = await db
+    const monthlySalesQuery = db
       .select({
         _id: sql<string>`to_char(${orders.createdAt}, 'YYYY-MM')`,
         total: sql<number>`coalesce(sum(${orders.price}::numeric), 0)::float`,
@@ -480,7 +586,7 @@ export class OrdersService {
       .orderBy(sql`to_char(${orders.createdAt}, 'YYYY-MM')`);
 
     // Order status counts
-    const orderStatusCounts = await db
+    const orderStatusCountsQuery = db
       .select({
         _id: orders.status,
         count: sql<number>`count(*)::int`,
@@ -489,7 +595,7 @@ export class OrdersService {
       .groupBy(orders.status);
 
     // Top products
-    const topProducts = await db
+    const topProductsQuery = db
       .select({
         _id: orders.productId,
         totalSales: sql<number>`coalesce(sum(${orders.price}::numeric), 0)::float`,
@@ -500,6 +606,14 @@ export class OrdersService {
       .groupBy(orders.productId)
       .orderBy(desc(sql`sum(${orders.price}::numeric)`))
       .limit(5);
+
+    const [[incomeData], weeklySalesRows, monthlySalesRows, orderStatusCounts, topProducts] = await Promise.all([
+      incomeQuery,
+      weeklySalesQuery,
+      monthlySalesQuery,
+      orderStatusCountsQuery,
+      topProductsQuery,
+    ]);
 
     return {
       orders: orderCount,

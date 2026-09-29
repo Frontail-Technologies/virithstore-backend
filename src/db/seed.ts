@@ -44,7 +44,7 @@ async function seed() {
 
   // 2. Seed Categories
   const existingCats = await db.select().from(categories);
-  let catMap: Record<string, string> = {};
+  const catMap: Record<string, string> = {};
 
   if (!existingCats.length) {
     const insertedCats = await db.insert(categories).values([

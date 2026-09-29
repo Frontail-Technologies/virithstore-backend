@@ -4,7 +4,114 @@ import { eq, and, desc, sql, ilike } from "drizzle-orm";
 import { NotFoundError } from "../../shared/errors";
 import { resolveImages } from "../../shared/cloudinary";
 
+export interface HomepageProductDto {
+  id: string;
+  slug: string;
+  name: string;
+  nameKh: string | null;
+  image: string;
+  type: "digital-service" | "account";
+  region: string | null;
+  isHot: boolean;
+  isPopular: boolean;
+  inStock: boolean;
+  minPrice: string | null;
+  originalPrice: string | null;
+}
+
+export function toHomepageProduct(product: {
+  id: string;
+  slug: string;
+  name: string;
+  nameKh: string | null;
+  image: string;
+  type: "digital-service" | "account";
+  region: string | null;
+  isHot: boolean;
+  isPopular: boolean;
+  stock: boolean;
+  cost: ProductCostItem[];
+}): HomepageProductDto {
+  const purchasable = product.cost.filter((item) => item.isActive !== false && item.inStock !== false && (item.stock ?? 1) > 0);
+  const priced = purchasable
+    .map((item) => ({ item, value: Number(item.price) }))
+    .filter(({ value }) => Number.isFinite(value))
+    .sort((a, b) => a.value - b.value);
+  const cheapest = priced[0]?.item;
+
+  return {
+    id: product.id,
+    slug: product.slug,
+    name: product.name,
+    nameKh: product.nameKh,
+    image: product.image,
+    type: product.type,
+    region: product.region,
+    isHot: product.isHot,
+    isPopular: product.isPopular,
+    inStock: product.stock && purchasable.length > 0,
+    minPrice: cheapest?.price ?? null,
+    originalPrice: cheapest?.costPrice ?? null,
+  };
+}
+
 export class ProductsService {
+  static async getAdminOptions() {
+    return db
+      .select({
+        id: products.id,
+        slug: products.slug,
+        name: products.name,
+        type: products.type,
+        isAvailable: products.isAvailable,
+        cost: products.cost,
+      })
+      .from(products)
+      .where(eq(products.isDeleted, false))
+      .orderBy(products.name);
+  }
+
+  static async getHomepageGroups(limit = 12) {
+    const publicFields = {
+      id: products.id,
+      slug: products.slug,
+      name: products.name,
+      nameKh: products.nameKh,
+      image: products.image,
+      type: products.type,
+      region: products.region,
+      isHot: products.isHot,
+      isPopular: products.isPopular,
+      stock: products.stock,
+      cost: products.cost,
+    };
+    const available = and(eq(products.isDeleted, false), eq(products.isAvailable, true));
+    const getGroup = (condition: ReturnType<typeof eq>) => db
+      .select(publicFields)
+      .from(products)
+      .where(and(available, condition))
+      .orderBy(desc(products.createdAt))
+      .limit(limit);
+
+    const results = await Promise.allSettled([
+      db.select(publicFields).from(products).where(and(available, eq(products.type, "digital-service"), eq(products.isFeatured, true))).orderBy(desc(products.createdAt)).limit(limit),
+      getGroup(eq(products.type, "account")),
+      db.select(publicFields).from(products).where(and(available, eq(products.type, "digital-service"), eq(products.isFeatured, false))).orderBy(desc(products.createdAt)).limit(limit),
+    ]);
+    const group = (index: number) => {
+      const result = results[index];
+      if (result?.status === "fulfilled") return result.value;
+      console.error("Homepage product group query failed:", result?.reason);
+      return [];
+    };
+
+    return {
+      featuredProducts: group(0).map(toHomepageProduct),
+      accountProducts: group(1).map(toHomepageProduct),
+      digitalServices: group(2).map(toHomepageProduct),
+    };
+  }
+
   static async getAll(params?: {
     type?: "digital-service" | "account";
     categoryId?: string;
@@ -77,11 +184,7 @@ export class ProductsService {
       return this.getBySlug(id);
     }
 
-    const [product] = await db
-      .select()
-      .from(products)
-      .where(eq(products.id, id))
-      .limit(1);
+    const product = await this.findOne(eq(products.id, id));
 
     if (!product) {
       throw new NotFoundError("Product not found");
@@ -91,16 +194,17 @@ export class ProductsService {
   }
 
   static async getBySlug(slug: string) {
-    const [product] = await db
-      .select()
-      .from(products)
-      .where(eq(products.slug, slug))
-      .limit(1);
+    const product = await this.findOne(eq(products.slug, slug));
 
     if (!product) {
       throw new NotFoundError("Product not found");
     }
 
+    return product;
+  }
+
+  private static async findOne(condition: ReturnType<typeof eq>) {
+    const [product] = await db.select().from(products).where(condition).limit(1);
     return product;
   }
 

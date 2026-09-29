@@ -6,9 +6,17 @@ import { requireAdminPlugin } from "../../middleware/admin.middleware";
 export const accountsRoutes = new Elysia({ prefix: "/accounts" })
   .use(requireAdminPlugin)
   .get("/", async ({ query }) => {
-    const list = await AccountsVaultService.getAccounts(query.productId as string, query.costId as string);
-    return ok(list);
+    const result = await AccountsVaultService.getAccounts({
+      productId: query.productId as string,
+      costId: query.costId as string,
+      status: query.status as string,
+      search: query.search as string,
+      page: query.page ? Number(query.page) : 1,
+      limit: query.limit ? Number(query.limit) : 25,
+    });
+    return ok(result.items, "Accounts fetched", result.meta);
   })
+  .get("/:id", async ({ params }) => ok(await AccountsVaultService.getAccountById(params.id)))
   .post("/", async ({ body }) => {
     const item = await AccountsVaultService.upsertAccount(undefined, body);
     return created(item, "Account credentials added");

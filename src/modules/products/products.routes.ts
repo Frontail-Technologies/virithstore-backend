@@ -28,6 +28,10 @@ export const productsRoutes = new Elysia({ prefix: "/products" })
 
   // Admin routes
   .use(requireAdmin)
+  .get("/admin/options", async () => {
+    const options = await ProductsService.getAdminOptions();
+    return ok(options);
+  })
   .post(
     "/",
     async ({ body }) => {

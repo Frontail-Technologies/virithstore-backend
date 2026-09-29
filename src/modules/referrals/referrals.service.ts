@@ -76,7 +76,7 @@ export class ReferralsService {
    * Get user's referral code, link, stats & conversions
    */
   static async getUserReferralStats(userId: string) {
-    let [user] = await db
+    const [user] = await db
       .select()
       .from(users)
       .where(eq(users.id, userId))

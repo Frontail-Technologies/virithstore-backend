@@ -1,20 +1,39 @@
 import { db } from "../../db/client";
 import { accountsVault, products } from "../../db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, ilike, or, sql } from "drizzle-orm";
 
 export class AccountsVaultService {
-  static async getAccounts(productId?: string, costId?: string) {
-    let conditions = [];
-    if (productId && productId !== "all") {
-      conditions.push(eq(accountsVault.productId, productId));
+  static async getAccounts(params: {
+    productId?: string;
+    costId?: string;
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  } = {}) {
+    const page = Math.max(1, params.page || 1);
+    const limit = Math.min(100, Math.max(1, params.limit || 25));
+    const conditions = [];
+    if (params.productId && params.productId !== "all") {
+      conditions.push(eq(accountsVault.productId, params.productId));
     }
-    if (costId && costId !== "all") {
-      conditions.push(eq(accountsVault.costId, costId));
+    if (params.costId && params.costId !== "all") {
+      conditions.push(eq(accountsVault.costId, params.costId));
+    }
+    if (params.status === "available") {
+      conditions.push(and(eq(accountsVault.isActive, true), eq(accountsVault.isReserved, false))!);
+    } else if (params.status === "reserved") {
+      conditions.push(eq(accountsVault.isReserved, true));
+    } else if (params.status === "inactive") {
+      conditions.push(eq(accountsVault.isActive, false));
+    }
+    if (params.search) {
+      conditions.push(or(ilike(accountsVault.email, `%${params.search}%`), ilike(products.name, `%${params.search}%`))!);
     }
 
     const whereClause = conditions.length ? and(...conditions) : undefined;
 
-    const list = await db
+    const items = await db
       .select({
         id: accountsVault.id,
         productId: {
@@ -23,8 +42,6 @@ export class AccountsVaultService {
         },
         costId: accountsVault.costId,
         email: accountsVault.email,
-        password: accountsVault.password,
-        additionalInfo: accountsVault.additionalInfo,
         isActive: accountsVault.isActive,
         isReserved: accountsVault.isReserved,
         createdAt: accountsVault.createdAt,
@@ -32,9 +49,22 @@ export class AccountsVaultService {
       .from(accountsVault)
       .leftJoin(products, eq(accountsVault.productId, products.id))
       .where(whereClause as any)
-      .orderBy(desc(accountsVault.createdAt));
+      .orderBy(desc(accountsVault.createdAt))
+      .limit(limit)
+      .offset((page - 1) * limit);
 
-    return list;
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(accountsVault)
+      .leftJoin(products, eq(accountsVault.productId, products.id))
+      .where(whereClause as any);
+
+    return { items, meta: { page, limit, total: count, totalPages: Math.ceil(count / limit) } };
+  }
+
+  static async getAccountById(id: string) {
+    const [account] = await db.select().from(accountsVault).where(eq(accountsVault.id, id)).limit(1);
+    return account;
   }
 
   static async upsertAccount(id?: string, data?: any) {

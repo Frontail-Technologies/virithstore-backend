@@ -3,6 +3,7 @@ import { OrdersService } from "./orders.service";
 import { ok, created } from "../../shared/response";
 import { authPlugin, requireAuthPlugin } from "../../middleware/auth.middleware";
 import { requireAdminPlugin } from "../../middleware/admin.middleware";
+import { assertOrderAccess, toOrderStatusDto, toPublicOrderStatusDto } from "./checkout-access";
 
 export const ordersRoutes = new Elysia({ prefix: "/orders" })
   .use(authPlugin)
@@ -19,29 +20,44 @@ export const ordersRoutes = new Elysia({ prefix: "/orders" })
   )
   .get("/number/:orderNumber", async ({ params }) => {
     const order = await OrdersService.getByOrderNumber(params.orderNumber);
-    return ok(order);
+    return ok(toPublicOrderStatusDto(order));
   })
   .get("/live", async () => {
     const feed = await OrdersService.getLiveFeed();
     return ok(feed);
+  })
+  .get("/:id/payment-status", async ({ params, user, request }) => {
+    const order = await OrdersService.getById(params.id);
+    assertOrderAccess(order, user?.id, request.headers.get("x-checkout-token") || undefined);
+    return ok({
+      orderId: order.id,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      updatedAt: order.updatedAt,
+    });
+  })
+  .get("/:id", async ({ params, user, request }) => {
+    const order = await OrdersService.getById(params.id);
+    assertOrderAccess(order, user?.id, request.headers.get("x-checkout-token") || undefined);
+    return ok(toOrderStatusDto(order));
   })
   .use(requireAuthPlugin)
   .get("/my-orders", async ({ user }) => {
     const list = await OrdersService.getUserOrders(user.id);
     return ok(list);
   })
+  // Admin order management
+  .use(requireAdminPlugin)
   .get("/query", async ({ query }) => {
     const result = await OrdersService.getAllOrders({
-      status: query.status as any,
-      paymentStatus: query.paymentStatus as any,
-      search: query.search as any,
+      status: query.status as never,
+      paymentStatus: query.paymentStatus as never,
+      search: query.search as string | undefined,
       page: query.page ? Number(query.page) : 1,
-      limit: query.limit ? Number(query.limit) : 200,
+      limit: query.limit ? Number(query.limit) : 25,
     });
     return ok({ orders: result.items, total: result.meta?.total || result.items.length, totalPages: result.meta?.totalPages || 1 });
   })
-  // Admin order management
-  .use(requireAdminPlugin)
   .get("/admin/analytics", async () => {
     const data = await OrdersService.getAnalytics();
     return ok(data);
@@ -56,7 +72,7 @@ export const ordersRoutes = new Elysia({ prefix: "/orders" })
       paymentStatus: query.paymentStatus as any,
       search: query.search as any,
       page: query.page ? Number(query.page) : 1,
-      limit: query.limit ? Number(query.limit) : 200,
+      limit: query.limit ? Number(query.limit) : 25,
     });
     return ok({ orders: result.items, total: result.meta?.total || result.items.length, totalPages: result.meta?.totalPages || 1 });
   })
@@ -65,7 +81,7 @@ export const ordersRoutes = new Elysia({ prefix: "/orders" })
       status: query.status as any,
       paymentStatus: query.paymentStatus as any,
       page: query.page ? Number(query.page) : 1,
-      limit: query.limit ? Number(query.limit) : 200,
+      limit: query.limit ? Number(query.limit) : 25,
     });
     return ok(result.items, "Orders fetched", result.meta);
   })
