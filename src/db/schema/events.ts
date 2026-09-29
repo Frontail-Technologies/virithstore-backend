@@ -9,9 +9,12 @@ export const events = pgTable("events", {
   eventPrice: varchar("event_price", { length: 50 }),
   originalPrice: varchar("original_price", { length: 50 }),
   productId: varchar("product_id", { length: 255 }),
+  costId: varchar("cost_id", { length: 255 }),
   link: varchar("link", { length: 500 }),
   order: integer("order").default(0).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
+  startsAt: timestamp("starts_at"),
+  endsAt: timestamp("ends_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

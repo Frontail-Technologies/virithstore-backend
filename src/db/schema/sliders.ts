@@ -1,7 +1,18 @@
 import { pgTable, uuid, jsonb, varchar, timestamp } from "drizzle-orm/pg-core";
 
 export interface SliderImage {
-  url: string;
+  url?: string;
+  desktopImage?: string;
+  mobileImage?: string;
+  title?: string;
+  subtitle?: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+  altText?: string;
+  enabled?: boolean;
+  order?: number;
+  startsAt?: string;
+  endsAt?: string;
 }
 
 export const sliders = pgTable("sliders", {

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, numeric, integer, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, numeric, integer, boolean, timestamp, pgEnum, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "./users";
 
 export const spinPrizeTypeEnum = pgEnum("spin_prize_type", [
@@ -45,7 +45,9 @@ export const spinCredits = pgTable("spin_credits", {
   isUsed: boolean("is_used").default(false).notNull(),
   usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  orderIdUnique: uniqueIndex("spin_credits_order_id_unique").on(table.orderId),
+}));
 
 export type SpinPrize = typeof spinPrizes.$inferSelect;
 export type NewSpinPrize = typeof spinPrizes.$inferInsert;

@@ -11,7 +11,7 @@ export class PaymentService {
   /**
    * Generates ABA PayWay KHQR / PayWay transaction checkout parameters and HMAC SHA-512 hash
    */
-  static async createPaywayTransaction(orderId: string) {
+  static async createPaywayTransaction(orderId: string, checkoutToken?: string) {
     const [order] = await db
       .select()
       .from(orders)
@@ -22,8 +22,11 @@ export class PaymentService {
       throw new NotFoundError("Order not found");
     }
 
-    if (order.paymentStatus === "paid") {
+    if (order.paymentStatus === "paid" || order.fulfilledAt) {
       throw new AppError("Order is already paid", 400);
+    }
+    if (order.paymentMethod !== "aba-khqr" || ["cancelled", "failed", "completed"].includes(order.status)) {
+      throw new AppError("Order is not payable through PayWay", 409);
     }
 
     const merchant_id = env.PAYWAY_MERCHANT_KEY;
@@ -35,8 +38,9 @@ export class PaymentService {
     // ABA POSTs the async payment result to this URL (server-to-server, not a browser
     // redirect) — it must point at a real endpoint that can process the callback.
     const return_url = Buffer.from(`${env.NEXT_PUBLIC_BASE_URL}/api/payment/webhook/abapayway`).toString("base64");
-    const continue_success_url = `${env.NEXT_PUBLIC_BASE_URL}/success?transactionId=${tran_id}&orderId=${order.id}&amount=${amount}`;
-    const cancel_url = `${env.NEXT_PUBLIC_BASE_URL}/failed?orderId=${order.id}`;
+    const tokenParam = checkoutToken ? `&checkoutToken=${encodeURIComponent(checkoutToken)}` : "";
+    const continue_success_url = `${env.NEXT_PUBLIC_BASE_URL}/success?transactionId=${tran_id}&orderId=${order.id}&amount=${amount}${tokenParam}`;
+    const cancel_url = `${env.NEXT_PUBLIC_BASE_URL}/failed?orderId=${order.id}${tokenParam}`;
 
     // PayWay exact parameter sequence for HMAC SHA512
     const params = {
@@ -83,11 +87,7 @@ export class PaymentService {
       })
       .where(eq(orders.id, order.id));
 
-    return {
-      ...params,
-      hash,
-      paymentUrl: env.PAYWAY_API_URL,
-    };
+    return { api_url: env.PAYWAY_API_URL, form_data: { ...params, hash } };
   }
 
   /**
@@ -142,14 +142,7 @@ export class PaymentService {
       return { success: true, message: "Payment verified successfully", order: fulfilled };
     }
 
-    await db
-      .update(orders)
-      .set({
-        paymentStatus: "failed",
-        status: "failed",
-        updatedAt: new Date(),
-      })
-      .where(eq(orders.id, order.id));
+    await OrdersService.failOrder(order.id, "PayWay payment was not approved");
 
     await db.insert(orderLogs).values({
       orderId: order.id,

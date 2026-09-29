@@ -2,10 +2,18 @@ export class AppError extends Error {
   constructor(
     public message: string,
     public statusCode = 400,
-    public code = "BAD_REQUEST"
+    public code = "BAD_REQUEST",
+    public details?: unknown,
   ) {
     super(message);
     this.name = "AppError";
+  }
+}
+
+export class ValidationError extends AppError {
+  constructor(message: string, details: unknown) {
+    super(message, 422, "VALIDATION_ERROR", details);
+    this.name = "ValidationError";
   }
 }
 

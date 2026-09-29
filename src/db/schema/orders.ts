@@ -39,6 +39,8 @@ export const orders = pgTable("orders", {
   credentials: jsonb("credentials").default({}).notNull(), // URL, Username, or Account fields
   deliveryData: jsonb("delivery_data"), // Account details / delivery secret
   notes: text("notes"),
+  couponRedeemedAt: timestamp("coupon_redeemed_at"),
+  fulfilledAt: timestamp("fulfilled_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

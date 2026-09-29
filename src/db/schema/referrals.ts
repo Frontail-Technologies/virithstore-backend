@@ -1,4 +1,4 @@
-import { pgTable, uuid, numeric, timestamp, pgEnum, integer } from "drizzle-orm/pg-core";
+import { pgTable, uuid, numeric, timestamp, pgEnum, integer, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { orders } from "./orders";
 
@@ -18,7 +18,9 @@ export const referralTransactions = pgTable("referral_transactions", {
   status: referralStatusEnum("status").default("completed").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  orderIdUnique: uniqueIndex("referral_transactions_order_id_unique").on(table.orderId),
+}));
 
 export type ReferralTransaction = typeof referralTransactions.$inferSelect;
 export type NewReferralTransaction = typeof referralTransactions.$inferInsert;
