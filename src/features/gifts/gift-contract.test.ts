@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { GiftProgressResponse } from "./gift.contract";
+import type { GiftProgressResponse } from "./model";
 
 test("gift progress contract uses canonical wagering names", () => {
   const response: GiftProgressResponse = {
