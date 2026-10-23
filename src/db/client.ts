@@ -11,3 +11,5 @@ const queryClient = postgres(env.DATABASE_URL, {
 
 export const db = drizzle(queryClient, { schema });
 export type DB = typeof db;
+/** A transaction handle, as passed to `db.transaction(async (tx) => ...)`. */
+export type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];

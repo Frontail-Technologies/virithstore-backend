@@ -1,6 +1,8 @@
 export interface ApiResponse<T = any> {
   success: boolean;
   message?: string;
+  /** Machine-readable error code, present on failures. */
+  code?: string;
   data?: T;
   meta?: {
     page?: number;
@@ -26,5 +28,6 @@ export const created = <T>(data: T, message = "Created successfully"): ApiRespon
 export const fail = (message: string, data?: any): ApiResponse => ({
   success: false,
   message,
+  code: data?.code,
   data,
 });
