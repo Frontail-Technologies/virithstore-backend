@@ -9,7 +9,7 @@ import { gifts } from "./schema/gifts";
 import { spinPrizes } from "./schema/spin";
 import { events } from "./schema/events";
 import { orders } from "./schema/orders";
-import bcrypt from "bcryptjs";
+import { hashPassword } from "../libs/password";
 import { eq } from "drizzle-orm";
 
 async function seed() {
@@ -22,7 +22,7 @@ async function seed() {
     { email: "user@virithstore.com", name: "Demo Customer", role: "user" },
   ];
 
-  const hashedPassword = await bcrypt.hash("password123", 10);
+  const hashedPassword = await hashPassword("password123");
 
   for (const u of usersToSeed) {
     const existing = await db.select().from(users).where(eq(users.email, u.email)).limit(1);
