@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { validateCredentials } from "./credential-validation";
-import { assertOrderAccess, createCheckoutToken, toPublicOrderStatusDto, verifyCheckoutToken } from "./checkout-access";
-import { ForbiddenError, UnauthorizedError, ValidationError } from "../../shared/errors";
+import { validateCredentials } from "./credentials";
+import { assertOrderAccess } from "./access";
+import { toPublicOrderStatusDto } from "./mappers";
+import { createCheckoutToken, verifyCheckoutToken } from "../../libs/jwt";
+import type { HttpError } from "../../libs/http-error";
 import type { Order } from "../../db/schema/orders";
 import type { ProductFieldItem } from "../../db/schema/products";
 
@@ -13,11 +15,19 @@ const fields: ProductFieldItem[] = [
   { name: "accountLevel", label: "Account Level", type: "number" },
 ];
 
+const errorOf = (fn: () => unknown) => {
+  try {
+    fn();
+  } catch (error) {
+    return error as HttpError;
+  }
+};
+
 describe("product credential validation", () => {
   test("rejects a missing required credential with field details", () => {
-    expect(() => validateCredentials(fields, {})).toThrow(ValidationError);
+    expect(errorOf(() => validateCredentials(fields, {}))?.code).toBe("VALIDATION_ERROR");
     try { validateCredentials(fields, {}); } catch (error) {
-      expect((error as ValidationError).details).toContainEqual(expect.objectContaining({ field: "playerId", code: "required" }));
+      expect((error as HttpError).details).toContainEqual(expect.objectContaining({ field: "playerId", code: "required" }));
     }
   });
 
@@ -28,18 +38,18 @@ describe("product credential validation", () => {
   });
 
   test("rejects invalid select options", () => {
-    expect(() => validateCredentials(fields, { playerId: "1", email: "a@b.com", server: "Mars" })).toThrow(ValidationError);
+    expect(errorOf(() => validateCredentials(fields, { playerId: "1", email: "a@b.com", server: "Mars" }))?.code).toBe("VALIDATION_ERROR");
   });
 
   test("rejects malformed email and URL values", () => {
     try { validateCredentials(fields, { playerId: "1", email: "bad", profile: "javascript:alert(1)", server: "Asia" }); } catch (error) {
-      const details = (error as ValidationError).details as Array<{ code: string }>;
+      const details = (error as HttpError).details as Array<{ code: string }>;
       expect(details.map((item) => item.code)).toEqual(expect.arrayContaining(["invalid_email", "invalid_url"]));
     }
   });
 
   test("rejects credential keys not configured by the product", () => {
-    expect(() => validateCredentials([], { admin: "true" })).toThrow(ValidationError);
+    expect(errorOf(() => validateCredentials([], { admin: "true" }))?.code).toBe("VALIDATION_ERROR");
   });
 });
 
@@ -49,7 +59,7 @@ describe("order-scoped checkout access", () => {
 
   test("allows an owner and blocks another authenticated user", () => {
     expect(() => assertOrderAccess(ownedOrder, "user-1", undefined)).not.toThrow();
-    expect(() => assertOrderAccess(ownedOrder, "user-2", undefined)).toThrow(ForbiddenError);
+    expect(errorOf(() => assertOrderAccess(ownedOrder, "user-2", undefined))?.code).toBe("FORBIDDEN");
   });
 
   test("a guest token only grants its bound order", () => {
@@ -57,11 +67,11 @@ describe("order-scoped checkout access", () => {
     expect(verifyCheckoutToken(token, guestOrder.id)).toBe(true);
     expect(verifyCheckoutToken(token, "33333333-3333-4333-8333-333333333333")).toBe(false);
     expect(() => assertOrderAccess(guestOrder, undefined, token)).not.toThrow();
-    expect(() => assertOrderAccess({ ...guestOrder, id: "other" }, undefined, token)).toThrow(ForbiddenError);
+    expect(errorOf(() => assertOrderAccess({ ...guestOrder, id: "other" }, undefined, token))?.code).toBe("FORBIDDEN");
   });
 
   test("blocks anonymous arbitrary order and payment-status polling", () => {
-    expect(() => assertOrderAccess(guestOrder, undefined, undefined)).toThrow(UnauthorizedError);
+    expect(errorOf(() => assertOrderAccess(guestOrder, undefined, undefined))?.code).toBe("UNAUTHORIZED");
   });
 
   test("public lookup DTO omits credentials, delivery, user, and provider fields", () => {

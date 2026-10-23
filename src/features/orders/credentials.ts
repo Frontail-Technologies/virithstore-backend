@@ -1,5 +1,5 @@
 import type { ProductFieldItem } from "../../db/schema/products";
-import { ValidationError } from "../../shared/errors";
+import { validationError } from "../../libs/http-error";
 
 export interface CredentialValidationIssue {
   field: string;
@@ -70,7 +70,7 @@ export function validateCredentials(
   }
 
   if (issues.length > 0) {
-    throw new ValidationError("Please correct the highlighted buyer information", issues);
+    throw validationError("Please correct the highlighted buyer information", issues);
   }
   return normalized;
 }
