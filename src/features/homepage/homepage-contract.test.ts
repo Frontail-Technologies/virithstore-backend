@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { getActiveHeroSlides } from "../sliders/sliders.service";
-import { isEventActive } from "../events/events.service";
-import { toHomepageProduct } from "../products/products.service";
+import { getActiveHeroSlides } from "../sliders/mappers";
+import { isEventActive } from "../events/mappers";
+import { toHomepageProduct } from "../products/mappers";
 
 describe("homepage public contract", () => {
   test("filters scheduled hero slides and preserves explicit order", () => {
