@@ -5,7 +5,7 @@ import { orders, type Order } from "../../db/schema/orders";
 import { badRequest, conflict, notFound } from "../../libs/http-error";
 import { generateTransactionId } from "../../libs/ids";
 import { formatMoney, parseMoney } from "../../libs/money";
-import { checkPaywayTransaction, paywayHash, paywayVerdict } from "../../libs/payway";
+import { PAYWAY_LIFETIME_MINUTES, checkPaywayTransaction, isPaywayCheckable, paywayHash, paywayVerdict } from "../../libs/payway";
 import { recordOrderLog } from "../order-logs/log";
 import { failOrder, fulfillOrder } from "../orders/fulfil";
 
@@ -49,7 +49,8 @@ export async function createPaywayTransaction(order: Order, checkoutToken?: stri
     custom_fields: "",
     return_params: "",
     payout: "",
-    lifetime: "",
+    // Transaction lifetime in minutes: PayWay rejects payments after it, and we stop polling shortly after.
+    lifetime: String(PAYWAY_LIFETIME_MINUTES),
     additional_params: "",
     google_pay_token: "",
   };
@@ -104,6 +105,29 @@ function scheduleRechecks(order: Order, tranId: string) {
     }, RECHECK_DELAYS_MS[index]);
   };
   attempt(0);
+}
+
+// Status polling asks PayWay at most once per interval per order, however many tabs or clients are polling.
+const MIN_CHECK_INTERVAL_MS = 2_500;
+const lastCheckAt = new Map<string, number>();
+
+/**
+ * Check Transaction polling used by the client: settles a pending PayWay order from PayWay's own answer.
+ * Stops (returns `checked: false`) once the paid/failed state is final or the transaction lifetime has passed.
+ */
+export async function syncPaywayPayment(order: Order): Promise<{ checked: boolean; expired: boolean }> {
+  const tranId = order.paymentTransactionId;
+  const settled = order.paymentStatus !== "pending" || !!order.fulfilledAt || ["cancelled", "failed", "completed"].includes(order.status);
+  if (!tranId || order.paymentMethod !== "aba-khqr" || settled) return { checked: false, expired: false };
+  if (!isPaywayCheckable(tranId)) return { checked: false, expired: true };
+
+  const now = Date.now();
+  if (now - (lastCheckAt.get(order.id) ?? 0) < MIN_CHECK_INTERVAL_MS) return { checked: false, expired: false };
+  lastCheckAt.set(order.id, now);
+  if (lastCheckAt.size > 5_000) for (const [id, at] of lastCheckAt) if (now - at > 60_000) lastCheckAt.delete(id);
+
+  await verifyAndSettle(order, tranId);
+  return { checked: true, expired: false };
 }
 
 /**

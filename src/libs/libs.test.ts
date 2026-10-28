@@ -52,3 +52,21 @@ describe("http-error", () => {
     expect(httpError("x", 418).statusCode).toBe(418);
   });
 });
+
+describe("payway transaction lifetime", () => {
+  const { paywayTransactionExpiry, isPaywayCheckable, PAYWAY_LIFETIME_MINUTES } = require("./payway");
+  const started = 1_790_000_000;
+  const tranId = `TXN${started}123`;
+
+  test("derives the expiry from the request time inside the transaction id", () => {
+    expect(paywayTransactionExpiry(tranId).getTime()).toBe((started + PAYWAY_LIFETIME_MINUTES * 60) * 1000);
+    expect(paywayTransactionExpiry("garbage")).toBeNull();
+  });
+
+  test("keeps checking through the lifetime plus grace, then stops", () => {
+    const start = started * 1000;
+    expect(isPaywayCheckable(tranId, start + 60_000)).toBe(true);
+    expect(isPaywayCheckable(tranId, start + PAYWAY_LIFETIME_MINUTES * 60_000 + 30_000)).toBe(true);
+    expect(isPaywayCheckable(tranId, start + PAYWAY_LIFETIME_MINUTES * 60_000 + 120_000)).toBe(false);
+  });
+});

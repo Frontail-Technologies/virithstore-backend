@@ -3,6 +3,23 @@ import { env } from "../config/env";
 
 const REQUEST_TIMEOUT_MS = 8_000;
 
+/** How long PayWay keeps a transaction payable (minutes). Matches the stock reservation so both expire together. */
+export const PAYWAY_LIFETIME_MINUTES = 15;
+// Status checks continue slightly past the lifetime so a payment approved at the last second is still picked up.
+const CHECK_GRACE_MS = 60_000;
+
+/** `TXN<epoch seconds><3 digits>` carries the request time, so the lifetime needs no extra column. */
+export function paywayTransactionExpiry(tranId: string): Date | null {
+  const seconds = Number(tranId.slice(3, -3));
+  return Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000 + PAYWAY_LIFETIME_MINUTES * 60_000) : null;
+}
+
+/** False once the transaction lifetime (plus a short grace) has passed: stop calling Check Transaction. */
+export function isPaywayCheckable(tranId: string, now = Date.now()): boolean {
+  const expiry = paywayTransactionExpiry(tranId);
+  return !expiry || now <= expiry.getTime() + CHECK_GRACE_MS;
+}
+
 /** PayWay signs requests with base64 HMAC-SHA512 over the concatenated field values. */
 export const paywayHash = (value: string) => crypto.createHmac("sha512", env.PAYWAY_PUBLIC_KEY).update(value).digest("base64");
 

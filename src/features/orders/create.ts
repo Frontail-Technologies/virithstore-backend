@@ -7,6 +7,7 @@ import type { Product, ProductCostItem } from "../../db/schema/products";
 import { badRequest, unauthorized } from "../../libs/http-error";
 import { generateOrderNumber, isUuid } from "../../libs/ids";
 import { createCheckoutToken } from "../../libs/jwt";
+import { PAYWAY_LIFETIME_MINUTES } from "../../libs/payway";
 import { formatMoney, parseMoney, toPoints } from "../../libs/money";
 import { eq } from "drizzle-orm";
 import { calculateDiscount } from "../coupons/pricing";
@@ -17,7 +18,7 @@ import { validateCredentials } from "./credentials";
 import { fulfillOrder } from "./fulfil";
 import type { CreateOrder } from "./model";
 
-const RESERVATION_MINUTES = 15;
+const RESERVATION_MINUTES = PAYWAY_LIFETIME_MINUTES;
 
 type Coupon = typeof coupons.$inferSelect;
 

@@ -8,6 +8,7 @@ import { createOrder } from "./create";
 import { toOrderStatusDto, toPublicOrderStatusDto } from "./mappers";
 import { CreateOrder, OrderNumberParam, OrdersQuery, UpdateOrderStatus } from "./model";
 import { getLiveFeed, getOrder, getOrderByNumber, listOrders, listUserOrders } from "./queries";
+import { syncPaywayPayment } from "../payment/service";
 import { updateOrderStatus } from "./status";
 
 const CHECKOUT_TOKEN_HEADER = "x-checkout-token";
@@ -63,7 +64,16 @@ export const ordersFeature = new Elysia({ prefix: "/orders", name: "feature.orde
     async ({ params, user, request }) => {
       const order = await getOrder(params.id);
       assertOrderAccess(order, user?.id, request.headers.get(CHECKOUT_TOKEN_HEADER) || undefined);
-      return ok({ orderId: order.id, status: order.status, paymentStatus: order.paymentStatus, updatedAt: order.updatedAt });
+      // Client polling doubles as PayWay's recommended Check Transaction loop: the answer comes from PayWay, not the browser.
+      const { expired } = await syncPaywayPayment(order);
+      const current = expired || order.paymentStatus === "pending" ? await getOrder(params.id) : order;
+      return ok({
+        orderId: current.id,
+        status: current.status,
+        paymentStatus: current.paymentStatus,
+        updatedAt: current.updatedAt,
+        expired,
+      });
     },
     { optionalUser: true, params: IdParam },
   )
