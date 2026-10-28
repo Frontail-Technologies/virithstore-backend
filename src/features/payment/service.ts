@@ -24,7 +24,8 @@ export async function createPaywayTransaction(order: Order, checkoutToken?: stri
   const amount = formatMoney(parseMoney(order.price));
   const tokenParam = checkoutToken ? `&checkoutToken=${encodeURIComponent(checkoutToken)}` : "";
 
-  // Field order matters: PayWay verifies the hash over the values in exactly this sequence.
+  // Field order matters: PayWay verifies the hash over the values in exactly this sequence (its documented list:
+  // req_time ... google_pay_token, skip_success_page). Every non-empty value here must also be posted in the form.
   const params = {
     req_time: reqTime,
     merchant_id: env.PAYWAY_MERCHANT_KEY,
@@ -32,8 +33,6 @@ export async function createPaywayTransaction(order: Order, checkoutToken?: stri
     amount,
     items: "",
     shipping: "0",
-    ctid: "",
-    pwt: "",
     firstname: "",
     lastname: "",
     email: order.userEmail || "",
@@ -53,6 +52,7 @@ export async function createPaywayTransaction(order: Order, checkoutToken?: stri
     lifetime: String(PAYWAY_LIFETIME_MINUTES),
     additional_params: "",
     google_pay_token: "",
+    skip_success_page: "",
   };
 
   await db.update(orders).set({ paymentTransactionId: tranId, updatedAt: new Date() }).where(eq(orders.id, order.id));
