@@ -40,7 +40,7 @@ export async function createPaywayTransaction(order: Order, checkoutToken?: stri
     type: "purchase",
     payment_option: "abapay_khqr",
     // PayWay POSTs the async result here (server to server), so it must be a real webhook endpoint.
-    return_url: Buffer.from(`${env.FRONTEND_URL}/api/v1/payment/webhook/abapayway`).toString("base64"),
+    return_url: Buffer.from(`${env.API_PUBLIC_URL || env.FRONTEND_URL}/api/v1/payment/webhook/abapayway`).toString("base64"),
     cancel_url: `${env.FRONTEND_URL}/failed?orderId=${order.id}${tokenParam}`,
     continue_success_url: `${env.FRONTEND_URL}/success?transactionId=${tranId}&orderId=${order.id}&amount=${amount}${tokenParam}`,
     return_deeplink: "",

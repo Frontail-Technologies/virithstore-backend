@@ -48,6 +48,9 @@ export const env = {
   PAYWAY_CHECK_URL: requiredInProduction("PAYWAY_CHECK_URL") || `${PAYWAY_SANDBOX}/api/payment-gateway/v1/payments/check-transaction-2`,
   // Public URL of the storefront: PayWay return/continue/cancel links point here.
   FRONTEND_URL: (requiredInProduction("FRONTEND_URL") || "http://localhost:3000").replace(/\/$/, ""),
+  // Public origin of THIS backend (e.g. https://api.example.com). PayWay posts its payment result here, so it must be
+  // reachable from the internet and must not go through a frontend proxy. Falls back to FRONTEND_URL's /api/v1 rewrite.
+  API_PUBLIC_URL: (Bun.env.API_PUBLIC_URL || "").replace(/\/(api\/v1)?\/?$/, ""),
 };
 
 if (missing.length > 0) {
