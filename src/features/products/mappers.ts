@@ -31,7 +31,10 @@ interface HomepageProductRow {
 
 /** Storefront card: the cheapest purchasable package decides the displayed price and stock state. */
 export function toHomepageProduct(product: HomepageProductRow): HomepageProductDto {
-  const purchasable = product.cost.filter((item) => item.isActive !== false && item.inStock !== false && (item.stock ?? 1) > 0);
+  const purchasable = product.cost.filter((item) => item.isActive !== false
+    && item.inStock !== false
+    && item.inventoryAvailable !== false
+    && (item.stock ?? 1) > 0);
   const cheapest = purchasable
     .map((item) => ({ item, value: Number(item.price) }))
     .filter(({ value }) => Number.isFinite(value))

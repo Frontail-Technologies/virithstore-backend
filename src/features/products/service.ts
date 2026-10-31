@@ -1,6 +1,8 @@
-import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "../../db/client";
+import { accountsVault } from "../../db/schema/accountsVault";
 import { products } from "../../db/schema/products";
+import type { Product, ProductCostItem } from "../../db/schema/products";
 import { resolveImages } from "../../libs/cloudinary";
 import { notFound } from "../../libs/http-error";
 import { isUuid } from "../../libs/ids";
@@ -12,6 +14,49 @@ import type { CreateProduct, ProductsQuery, UpdateProduct } from "./model";
 const IMAGE_FOLDER = "virithstore/products";
 
 const parseBool = (value?: string) => (value === "true" ? true : value === "false" ? false : undefined);
+
+const inventoryKey = (productId: string, costId: string) => `${productId}:${costId}`;
+
+type InventoryProduct = Pick<Product, "id" | "type" | "cost">;
+
+/** Adds live vault availability without replacing the package's admin-controlled inStock flag. */
+export function mergeAccountInventory<T extends InventoryProduct>(product: T, counts: ReadonlyMap<string, number>) {
+  if (product.type !== "account") return product;
+
+  return {
+    ...product,
+    cost: product.cost.map((item: ProductCostItem) => {
+      const availableStock = counts.get(inventoryKey(product.id, item.id)) ?? 0;
+      return { ...item, availableStock, inventoryAvailable: availableStock > 0 };
+    }),
+  };
+}
+
+async function withAccountInventory<T extends InventoryProduct>(productRows: T[]) {
+  const accountProductIds = productRows.filter((product) => product.type === "account").map((product) => product.id);
+  if (accountProductIds.length === 0) return productRows;
+
+  const inventoryRows = await db
+    .select({
+      productId: accountsVault.productId,
+      costId: accountsVault.costId,
+      availableStock: sql<number>`count(*)::int`,
+    })
+    .from(accountsVault)
+    .where(and(
+      inArray(accountsVault.productId, accountProductIds),
+      eq(accountsVault.isActive, true),
+      or(eq(accountsVault.isReserved, false), lt(accountsVault.reservedExpiry, new Date())),
+    ))
+    .groupBy(accountsVault.productId, accountsVault.costId);
+
+  const counts = new Map<string, number>();
+  for (const row of inventoryRows) {
+    if (row.productId) counts.set(inventoryKey(row.productId, row.costId), Number(row.availableStock));
+  }
+
+  return productRows.map((product) => mergeAccountInventory(product, counts));
+}
 
 export async function listProducts(query: ProductsQuery) {
   const { page, limit, offset } = parsePage(query);
@@ -26,10 +71,11 @@ export async function listProducts(query: ProductsQuery) {
   if (query.search) conditions.push(ilike(products.name, `%${query.search}%`));
   const where = and(...conditions);
 
-  const [items, [{ count }]] = await Promise.all([
+  const [productRows, [{ count }]] = await Promise.all([
     db.select().from(products).where(where).orderBy(desc(products.createdAt)).limit(limit).offset(offset),
     db.select({ count: sql<number>`count(*)::int` }).from(products).where(where),
   ]);
+  const items = await withAccountInventory(productRows);
   return { items, meta: toPageMeta(count, page, limit) };
 }
 
@@ -55,7 +101,7 @@ async function findProduct(condition: ReturnType<typeof eq>) {
 export async function getProductBySlug(slug: string) {
   const product = await findProduct(eq(products.slug, slug));
   if (!product) throw notFound("Product not found");
-  return product;
+  return (await withAccountInventory([product]))[0]!;
 }
 
 /** Accepts either the product id or its slug. */
@@ -65,7 +111,7 @@ export async function getProduct(idOrSlug: string) {
 
   const product = await findProduct(eq(products.id, idOrSlug));
   if (!product) throw notFound("Product not found");
-  return product;
+  return (await withAccountInventory([product]))[0]!;
 }
 
 /** The dashboard sends slugs/placeholders for categories it hasn't saved yet; only real ids are kept. */
@@ -155,12 +201,13 @@ export async function listHomepageProductGroups(limit = 12) {
     group(eq(products.type, "account")),
     group(eq(products.type, "digital-service"), eq(products.isFeatured, false)),
   ]);
-  const rows = (index: number) => {
+  const rows = async (index: number) => {
     const result = results[index];
-    if (result.status === "fulfilled") return result.value.map(toHomepageProduct);
+    if (result.status === "fulfilled") return (await withAccountInventory(result.value)).map(toHomepageProduct);
     console.error("Homepage product group query failed:", result.reason);
     return [];
   };
 
-  return { featuredProducts: rows(0), accountProducts: rows(1), digitalServices: rows(2) };
+  const [featuredProducts, accountProducts, digitalServices] = await Promise.all([rows(0), rows(1), rows(2)]);
+  return { featuredProducts, accountProducts, digitalServices };
 }

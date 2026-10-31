@@ -16,6 +16,8 @@ export interface ProductCostItem {
   stock?: number;
   inStock?: boolean;
   isActive?: boolean;
+  availableStock?: number;
+  inventoryAvailable?: boolean;
 }
 
 export interface ProductFieldItem {
