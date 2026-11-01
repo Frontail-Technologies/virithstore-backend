@@ -4,7 +4,7 @@ import { accountsVault } from "../../db/schema/accountsVault";
 import { products } from "../../db/schema/products";
 import type { Product, ProductCostItem } from "../../db/schema/products";
 import { resolveImages } from "../../libs/cloudinary";
-import { notFound } from "../../libs/http-error";
+import { notFound, validationError } from "../../libs/http-error";
 import { isUuid } from "../../libs/ids";
 import { parsePage, toPageMeta } from "../../libs/pagination";
 import { slugify } from "../../libs/slug";
@@ -16,6 +16,30 @@ const IMAGE_FOLDER = "virithstore/products";
 const parseBool = (value?: string) => (value === "true" ? true : value === "false" ? false : undefined);
 
 const inventoryKey = (productId: string, costId: string) => `${productId}:${costId}`;
+
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+export function isValidYouTubeUrl(value: string | null | undefined) {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.replace(/^www\./, "").replace(/^m\./, "");
+    const parts = url.pathname.split("/").filter(Boolean);
+    const id = host === "youtu.be"
+      ? parts[0]
+      : ["youtube.com", "youtube-nocookie.com"].includes(host)
+        ? url.searchParams.get("v") || (["embed", "shorts", "live"].includes(parts[0]) ? parts[1] : null)
+        : null;
+    return Boolean(id && YOUTUBE_ID.test(id));
+  } catch {
+    return false;
+  }
+}
+
+function validateBannerMedia(input: Pick<CreateProduct, "banner" | "bannerType"> | Pick<UpdateProduct, "banner" | "bannerType">) {
+  if (input.bannerType === "youtube" && input.banner && !isValidYouTubeUrl(input.banner)) {
+    throw validationError("Enter a valid YouTube URL", [{ field: "banner", code: "invalid_url" }]);
+  }
+}
 
 type InventoryProduct = Pick<Product, "id" | "type" | "cost">;
 
@@ -118,6 +142,7 @@ export async function getProduct(idOrSlug: string) {
 const categoryIdOrNull = (value: string | null | undefined) => (isUuid(value) ? value : null);
 
 export async function createProduct({ cost, categoryId, slug, ...rest }: CreateProduct) {
+  validateBannerMedia(rest);
   const resolved = await resolveImages(
     {
       ...rest,
@@ -135,6 +160,7 @@ export async function createProduct({ cost, categoryId, slug, ...rest }: CreateP
 }
 
 export async function updateProduct(id: string, { cost, categoryId, ...rest }: UpdateProduct) {
+  validateBannerMedia(rest);
   const resolved = await resolveImages(
     {
       ...rest,

@@ -37,6 +37,7 @@ export const products = pgTable("products", {
   image: text("image").notNull(),
   slides: jsonb("slides").$type<string[]>().default([]).notNull(),
   banner: text("banner"),
+  bannerType: varchar("banner_type", { length: 20 }).$type<"image" | "video" | "youtube">().default("image").notNull(),
   type: productTypeEnum("type").notNull(),
   region: varchar("region", { length: 100 }),
   categoryId: uuid("category_id").references(() => categories.id, { onDelete: "set null" }),

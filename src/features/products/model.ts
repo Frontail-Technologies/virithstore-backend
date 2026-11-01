@@ -1,6 +1,7 @@
 import { t, type Static } from "elysia";
 
 export const ProductType = t.Union([t.Literal("digital-service"), t.Literal("account")]);
+export const ProductBannerType = t.Union([t.Literal("image"), t.Literal("video"), t.Literal("youtube")]);
 
 const Price = t.Union([t.String({ maxLength: 20 }), t.Number({ minimum: 0 })]);
 
@@ -35,6 +36,7 @@ export const CreateProduct = t.Object({
   image: t.String({ minLength: 1 }),
   slides: t.Optional(t.Array(t.String())),
   banner: t.Optional(t.Union([t.String(), t.Null()])),
+  bannerType: t.Optional(ProductBannerType),
   type: ProductType,
   region: t.Optional(t.Union([t.String({ maxLength: 100 }), t.Null()])),
   categoryId: t.Optional(t.Union([t.String(), t.Null()])),

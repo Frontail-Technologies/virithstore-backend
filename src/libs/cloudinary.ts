@@ -49,6 +49,24 @@ export async function uploadImage(
   return `/uploads/${filename}`;
 }
 
+/** Uploads a browser-playable product video without applying image transformations. */
+export async function uploadVideo(input: Buffer, folder = "virithstore/videos", mimeType = "video/mp4"): Promise<string> {
+  const dataUri = `data:${mimeType};base64,${input.toString("base64")}`;
+
+  if (isConfigured) {
+    const result = await cloudinary.uploader.upload(dataUri, {
+      folder,
+      resource_type: "video",
+    });
+    return result.secure_url;
+  }
+
+  const ext = mimeType === "video/webm" ? "webm" : "mp4";
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  await Bun.write(`./public/uploads/${filename}`, input);
+  return `/uploads/${filename}`;
+}
+
 export async function resolveImages<T>(
   value: T,
   folder: string,

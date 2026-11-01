@@ -35,6 +35,9 @@ export const env = {
   // Shared secret the Next.js server sends to /auth/oauth after NextAuth has verified the provider login.
   OAUTH_SHARED_SECRET: required("OAUTH_SHARED_SECRET", "test-only-oauth-shared-secret-0000", 32),
   TELEGRAM_BOT_TOKEN: Bun.env.TELEGRAM_BOT_TOKEN || "",
+  TELEGRAM_ORDER_BOT_TOKEN: Bun.env.TELEGRAM_ORDER_BOT_TOKEN?.trim() || "",
+  TELEGRAM_ORDER_CHAT_ID: Bun.env.TELEGRAM_ORDER_CHAT_ID?.trim() || "",
+  TELEGRAM_ORDER_WEBHOOK_SECRET: Bun.env.TELEGRAM_ORDER_WEBHOOK_SECRET?.trim() || "",
   CLOUDINARY_CLOUD_NAME: Bun.env.CLOUDINARY_CLOUD_NAME || "",
   CLOUDINARY_API_KEY: Bun.env.CLOUDINARY_API_KEY || "",
   CLOUDINARY_API_SECRET: Bun.env.CLOUDINARY_API_SECRET || "",

@@ -56,6 +56,7 @@ export async function getLiveFeed(limit = 25) {
       createdAt: orders.createdAt,
     })
     .from(orders)
+    .where(and(eq(orders.status, "completed"), eq(orders.paymentStatus, "paid")))
     .orderBy(desc(orders.createdAt))
     .limit(limit);
   return rows.map(toLiveFeedItem);

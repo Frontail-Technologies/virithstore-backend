@@ -11,6 +11,7 @@ import { couponsFeature } from "./features/coupons";
 import { eventsFeature } from "./features/events";
 import { giftTransactionsFeature, giftsFeature } from "./features/gifts";
 import { homepageFeature } from "./features/homepage";
+import { telegramOrdersFeature } from "./features/telegram-orders";
 import { marketFeature } from "./features/market";
 import { orderLogsFeature } from "./features/order-logs";
 import { ordersFeature } from "./features/orders";
@@ -47,7 +48,8 @@ const api = new Elysia({ prefix: "/api/v1", name: "api.v1" })
   .use(adminWalletFeature)
   .use(referralsFeature)
   .use(adminReferralsFeature)
-  .use(homepageFeature);
+  .use(homepageFeature)
+  .use(telegramOrdersFeature);
 
 export const app = new Elysia()
   .use(errorHandler)

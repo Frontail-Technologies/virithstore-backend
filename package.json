@@ -11,6 +11,7 @@
     "db:studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "telegram:webhook:set": "bun run scripts/set-telegram-order-webhook.ts",
     "db:seed": "bun run src/db/seed.ts"
   },
   "dependencies": {

@@ -82,6 +82,7 @@ describe("order-scoped checkout access", () => {
       originalPrice: "1.00", couponCode: null, discount: "0.00", status: "pending",
       paymentMethod: "aba-khqr", paymentStatus: "pending", paymentTransactionId: "secret",
       credentials: { playerId: "secret" }, deliveryData: { password: "secret" }, notes: null,
+      telegramChatId: null, telegramMessageId: null, telegramNotifiedAt: null,
       couponRedeemedAt: null, fulfilledAt: null, userEmail: "secret@example.com", createdAt: new Date(), updatedAt: new Date(),
     } satisfies Order);
     expect(dto).not.toHaveProperty("credentials");

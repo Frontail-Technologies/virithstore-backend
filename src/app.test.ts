@@ -35,11 +35,12 @@ describe("composed app", () => {
       ["GET", "/api/v1/admin/referrals/list"],
       ["POST", "/api/v1/admin/wallet/adjust", { userId: "x", points: 1, reason: "test" }],
       ["POST", "/api/v1/upload/image"],
+      ["POST", "/api/v1/upload/video"],
     ];
     for (const [method, path, body] of adminRoutes) {
       const res = await call(method, path, body);
       expect([401, 422], `${method} ${path}`).toContain(res.status);
-      if (res.status === 422) expect(path).toBe("/api/v1/upload/image"); // body validated before auth
+      if (res.status === 422) expect(["/api/v1/upload/image", "/api/v1/upload/video"]).toContain(path); // body validated before auth
     }
   });
 
@@ -52,6 +53,13 @@ describe("composed app", () => {
   test("order creation validates its body before touching the database", async () => {
     const res = await call("POST", "/api/v1/orders", { productId: "p" });
     expect(res.status).toBe(422);
+  });
+
+  test("Telegram order webhook rejects an invalid secret", async () => {
+    const res = await call("POST", "/api/v1/integrations/telegram/orders/webhook", {}, {
+      "x-telegram-bot-api-secret-token": "invalid",
+    });
+    expect(res.status).toBe(401);
   });
 
   test("coupon validation is rate limited", async () => {

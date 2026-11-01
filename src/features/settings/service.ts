@@ -4,7 +4,14 @@ import { settings } from "../../db/schema/settings";
 import { badRequest } from "../../libs/http-error";
 
 /** Keys the storefront may read without authentication. Everything else is admin-only. */
-const PUBLIC_SETTING_KEYS = new Set(["announcementText", "isAnnouncementActive", "isMaintenance", "maintenanceMessage"]);
+const PUBLIC_SETTING_KEYS = new Set([
+  "announcementText",
+  "isAnnouncementActive",
+  "isMaintenance",
+  "maintenanceMessage",
+  "telegramChannelUrl",
+  "telegramSupportUrl",
+]);
 
 export async function getAllSettings() {
   const rows = await db.select().from(settings);
