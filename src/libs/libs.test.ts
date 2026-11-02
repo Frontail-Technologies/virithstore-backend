@@ -70,3 +70,12 @@ describe("payway transaction lifetime", () => {
     expect(isPaywayCheckable(tranId, start + PAYWAY_LIFETIME_MINUTES * 60_000 + 120_000)).toBe(false);
   });
 });
+
+describe("slugify", () => {
+  const { slugify } = require("./slug");
+  test("turns admin-typed names into URL-safe slugs", () => {
+    expect(slugify("TikTok Like")).toBe("tiktok-like");
+    expect(slugify("  Mobile Legends!! ")).toBe("mobile-legends");
+    expect(slugify("tiktok-like")).toBe("tiktok-like");
+  });
+});

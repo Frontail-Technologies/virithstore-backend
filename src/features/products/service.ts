@@ -146,7 +146,8 @@ export async function createProduct({ cost, categoryId, slug, ...rest }: CreateP
   const resolved = await resolveImages(
     {
       ...rest,
-      slug: slug ?? slugify(rest.name),
+      // Always URL-safe: an admin-typed "TikTok Like" becomes "tiktok-like".
+      slug: slugify(slug || rest.name),
       categoryId: categoryIdOrNull(categoryId),
       slides: rest.slides ?? [],
       cost: normalizeCostItems(cost ?? []),
@@ -159,11 +160,13 @@ export async function createProduct({ cost, categoryId, slug, ...rest }: CreateP
   return created;
 }
 
-export async function updateProduct(id: string, { cost, categoryId, ...rest }: UpdateProduct) {
+export async function updateProduct(id: string, { cost, categoryId, slug, ...rest }: UpdateProduct) {
   validateBannerMedia(rest);
   const resolved = await resolveImages(
     {
       ...rest,
+      // Re-saving a product also repairs a slug that was stored with spaces or capitals.
+      ...(slug !== undefined && { slug: slugify(slug) || slugify(rest.name || "") || undefined }),
       ...(categoryId !== undefined && { categoryId: categoryIdOrNull(categoryId) }),
       ...(cost && { cost: normalizeCostItems(cost) }),
     },
