@@ -49,6 +49,9 @@ export const products = pgTable("products", {
   stock: boolean("stock").default(true).notNull(),
   spinActive: boolean("spin_active").default(false).notNull(),
   spinCostIds: jsonb("spin_cost_ids").$type<string[]>().default([]).notNull(),
+  /** Direct link products skip checkout: the storefront sends the customer straight to `link`. */
+  isLink: boolean("is_link").default(false).notNull(),
+  link: text("link"),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   cost: jsonb("cost").$type<ProductCostItem[]>().default([]).notNull(),
   description: text("description"),

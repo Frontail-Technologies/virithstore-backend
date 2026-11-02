@@ -13,6 +13,9 @@ export interface HomepageProductDto {
   inStock: boolean;
   minPrice: string | null;
   originalPrice: string | null;
+  /** When true the card opens `link` directly instead of the product page. */
+  isLink: boolean;
+  link: string | null;
 }
 
 interface HomepageProductRow {
@@ -27,6 +30,8 @@ interface HomepageProductRow {
   isPopular: boolean;
   stock: boolean;
   cost: ProductCostItem[];
+  isLink: boolean;
+  link: string | null;
 }
 
 /** Storefront card: the cheapest purchasable package decides the displayed price and stock state. */
@@ -50,9 +55,12 @@ export function toHomepageProduct(product: HomepageProductRow): HomepageProductD
     region: product.region,
     isHot: product.isHot,
     isPopular: product.isPopular,
-    inStock: product.stock && purchasable.length > 0,
+    // A direct link product has no packages to buy; it stays clickable while the admin keeps it in stock.
+    inStock: product.stock && (purchasable.length > 0 || (product.isLink && Boolean(product.link))),
     minPrice: cheapest?.price ?? null,
     originalPrice: cheapest?.costPrice ?? null,
+    isLink: product.isLink && Boolean(product.link),
+    link: product.isLink ? product.link : null,
   };
 }
 

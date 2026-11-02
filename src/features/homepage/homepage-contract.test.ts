@@ -44,11 +44,37 @@ describe("homepage public contract", () => {
         { id: "large", price: "5.00", costPrice: "6.00" },
         { id: "small", price: "2.00", costPrice: "3.00" },
       ],
+      isLink: false,
+      link: "https://ignored.example",
     });
 
     expect(card.minPrice).toBe("2.00");
     expect(card.originalPrice).toBe("3.00");
     expect(card.inStock).toBe(true);
+    expect(card.isLink).toBe(false);
+    expect(card.link).toBeNull();
     expect(Object.keys(card)).not.toContain("cost");
+  });
+
+  test("a direct link product without packages stays clickable and exposes its link", () => {
+    const card = toHomepageProduct({
+      id: "link-id",
+      slug: "join-group",
+      name: "Join Group",
+      nameKh: null,
+      image: "/link.jpg",
+      type: "digital-service",
+      region: null,
+      isHot: false,
+      isPopular: false,
+      stock: true,
+      cost: [],
+      isLink: true,
+      link: "https://t.me/example",
+    });
+
+    expect(card.inStock).toBe(true);
+    expect(card.isLink).toBe(true);
+    expect(card.link).toBe("https://t.me/example");
   });
 });

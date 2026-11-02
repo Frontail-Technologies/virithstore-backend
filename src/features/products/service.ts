@@ -41,7 +41,30 @@ function validateBannerMedia(input: Pick<CreateProduct, "banner" | "bannerType">
   }
 }
 
-type InventoryProduct = Pick<Product, "id" | "type" | "cost">;
+/** A direct link is an http(s) URL or a same-site path ("/product/x"); "//host" and other schemes are refused. */
+export function normalizeDirectLink(value: string | null | undefined) {
+  const link = value?.trim();
+  if (!link) return null;
+  if (link.startsWith("/") && !link.startsWith("//")) return link;
+  try {
+    const url = new URL(link);
+    if (url.protocol === "http:" || url.protocol === "https:") return url.toString();
+  } catch {
+    // Falls through to the validation error below.
+  }
+  throw validationError("Enter a valid link starting with https://", [{ field: "link", code: "invalid_url" }]);
+}
+
+/** Normalizes `link` and requires one whenever the product is switched to a direct link. */
+function withDirectLink<T extends { isLink?: boolean; link?: string | null }>(input: T): T {
+  const link = input.link === undefined ? undefined : normalizeDirectLink(input.link);
+  if (input.isLink && !link) {
+    throw validationError("Add the link customers should be sent to", [{ field: "link", code: "required" }]);
+  }
+  return link === undefined ? input : { ...input, link };
+}
+
+type InventoryProduct =Pick<Product, "id" | "type" | "cost">;
 
 /** Adds live vault availability without replacing the package's admin-controlled inStock flag. */
 export function mergeAccountInventory<T extends InventoryProduct>(product: T, counts: ReadonlyMap<string, number>) {
@@ -141,7 +164,8 @@ export async function getProduct(idOrSlug: string) {
 /** The dashboard sends slugs/placeholders for categories it hasn't saved yet; only real ids are kept. */
 const categoryIdOrNull = (value: string | null | undefined) => (isUuid(value) ? value : null);
 
-export async function createProduct({ cost, categoryId, slug, ...rest }: CreateProduct) {
+export async function createProduct(input: CreateProduct) {
+  const { cost, categoryId, slug, ...rest } = withDirectLink(input);
   validateBannerMedia(rest);
   const resolved = await resolveImages(
     {
@@ -160,7 +184,8 @@ export async function createProduct({ cost, categoryId, slug, ...rest }: CreateP
   return created;
 }
 
-export async function updateProduct(id: string, { cost, categoryId, slug, ...rest }: UpdateProduct) {
+export async function updateProduct(id: string, input: UpdateProduct) {
+  const { cost, categoryId, slug, ...rest } = withDirectLink(input);
   validateBannerMedia(rest);
   const resolved = await resolveImages(
     {
@@ -220,6 +245,8 @@ export async function listHomepageProductGroups(limit = 12) {
     isPopular: products.isPopular,
     stock: products.stock,
     cost: products.cost,
+    isLink: products.isLink,
+    link: products.link,
   };
   const available = and(eq(products.isDeleted, false), eq(products.isAvailable, true));
   const group = (...conditions: ReturnType<typeof eq>[]) =>

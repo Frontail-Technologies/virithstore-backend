@@ -48,6 +48,8 @@ export const CreateProduct = t.Object({
   stock: t.Optional(t.Boolean()),
   spinActive: t.Optional(t.Boolean()),
   spinCostIds: t.Optional(t.Array(t.String())),
+  isLink: t.Optional(t.Boolean()),
+  link: t.Optional(t.Union([t.String({ maxLength: 2000 }), t.Null()])),
   cost: t.Optional(t.Array(ProductCostItem)),
   description: t.Optional(t.Union([t.String(), t.Null()])),
   guide: t.Optional(t.Union([t.String(), t.Null()])),
