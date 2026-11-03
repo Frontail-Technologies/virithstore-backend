@@ -31,16 +31,19 @@ describe("Telegram order formatting", () => {
     expect(alertKindFor({ productType: "digital-service", status: "processing" })).toBe("manual");
   });
 
-  test("delivered orders only offer Cancel; others offer Complete and Cancel", () => {
-    expect(orderButtons(order, "delivered").flat().map((b) => b.callback_data)).toEqual([`ord-cancel:${ORDER_ID}`]);
-    expect(orderButtons(order, "needs-account").flat().map((b) => b.callback_data))
-      .toEqual([`ord-complete:${ORDER_ID}`, `ord-cancel:${ORDER_ID}`]);
+  test("every order gets Complete and Cancel, like delykastore", () => {
+    for (const kind of ["delivered", "manual", "needs-account"] as const) {
+      expect(orderButtons(order, kind).flat().map((b) => b.callback_data)).toEqual([`ord-complete:${ORDER_ID}`, `ord-cancel:${ORDER_ID}`]);
+    }
+    expect(formatOrderMessage(order, "manual")).toContain("New Order #ORD-9");
+    expect(formatOrderMessage(order, "manual")).toContain("Status:</b> Pending");
   });
 
   test("final message flags a manual refund", () => {
     const text = formatOrderMessage({ ...order, status: "cancelled", refundRequired: true }, "delivered", "cancelled");
-    expect(text).toContain("CANCELLED");
+    expect(text).toContain("Order #ORD-9 — CANCELLED");
     expect(text).toContain("Refund required");
+    expect(text).toContain("Updated by admin");
   });
 });
 
@@ -50,6 +53,8 @@ describe("Telegram callback parsing", () => {
     expect(parseOrderCallback(`ord-cancel:${ORDER_ID}`)).toEqual({ action: "cancel", orderId: ORDER_ID });
     expect(parseOrderCallback(`manual-complete:${ORDER_ID}`)).toEqual({ action: "complete", orderId: ORDER_ID });
     expect(parseOrderCallback(`manual-failed:${ORDER_ID}`)).toEqual({ action: "cancel", orderId: ORDER_ID });
+    expect(parseOrderCallback(`complete:${ORDER_ID}`)).toEqual({ action: "complete", orderId: ORDER_ID });
+    expect(parseOrderCallback(`cancel:${ORDER_ID}`)).toEqual({ action: "cancel", orderId: ORDER_ID });
   });
 
   test("rejects anything else", () => {

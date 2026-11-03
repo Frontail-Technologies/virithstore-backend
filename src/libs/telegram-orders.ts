@@ -30,23 +30,26 @@ export function alertKindFor(order: Pick<Order, "productType" | "status">): Orde
   return "delivered";
 }
 
-const HEADINGS: Record<OrderAlertKind, string> = {
-  delivered: "🆕 <b>New order {n}</b>",
-  manual: "🆕 <b>Manual order {n}</b>",
-  "needs-account": "⚠️ <b>Paid order {n}: no account in stock</b>",
-};
-
+// Delykastore's layout: one card for every order, always with Complete and Cancel.
 const STATUS_LINES: Record<OrderAlertKind, string> = {
-  delivered: "✅ <b>Status:</b> Paid &amp; delivered",
-  manual: "⏳ <b>Status:</b> Processing",
-  "needs-account": "⏳ <b>Status:</b> Paid, waiting for an account. Add credentials in the dashboard, then press Complete.",
+  delivered: "✅ <b>Status:</b> Paid &amp; delivered automatically",
+  manual: "⏳ <b>Status:</b> Pending",
+  "needs-account": "⚠️ <b>Status:</b> Paid, no account in stock. Add credentials in the dashboard, then Complete",
 };
 
 const FINAL_HEADINGS: Record<OrderFinalStatus, string> = {
-  completed: "✅ <b>{n}: COMPLETED</b>",
-  cancelled: "❌ <b>{n}: CANCELLED</b>",
-  failed: "❌ <b>{n}: FAILED</b>",
+  completed: "✅ <b>Order #{n} — COMPLETED</b>",
+  cancelled: "❌ <b>Order #{n} — CANCELLED</b>",
+  failed: "❌ <b>Order #{n} — FAILED</b>",
 };
+
+const FINAL_STATUS_LINES: Record<OrderFinalStatus, string> = {
+  completed: "✅ <b>Status:</b> Completed",
+  cancelled: "❌ <b>Status:</b> Cancelled",
+  failed: "❌ <b>Status:</b> Failed",
+};
+
+const MODES: Record<string, string> = { account: "Premium account", "digital-service": "Digital service" };
 
 /** Delykastore-style order card. Buyer inputs are shown, delivered account passwords never are. */
 export function formatOrderMessage(order: Order, kind: OrderAlertKind, finalStatus?: OrderFinalStatus) {
@@ -54,37 +57,40 @@ export function formatOrderMessage(order: Order, kind: OrderAlertKind, finalStat
     ? Object.entries(order.credentials as Record<string, unknown>)
     : [];
   const number = escapeTelegramHtml(order.orderNumber);
-  const heading = (finalStatus ? FINAL_HEADINGS[finalStatus] : HEADINGS[kind]).replace("{n}", number);
-  const finalLine = finalStatus
-    ? `📍 <b>Status:</b> ${finalStatus[0].toUpperCase()}${finalStatus.slice(1)}${order.refundRequired ? " · 💸 <b>Refund required (manual)</b>" : ""}`
-    : STATUS_LINES[kind];
   const lines = [
-    heading,
+    finalStatus ? FINAL_HEADINGS[finalStatus].replace("{n}", number) : `🆕 <b>New Order #${number}</b>`,
     "━━━━━━━━━━━━━━━━━━",
     `📦 <b>Service:</b> ${escapeTelegramHtml(order.productName)}`,
     `🎁 <b>Package:</b> ${escapeTelegramHtml(order.packageName)}`,
     ...credentials.map(([key, value]) => `🔗 <b>${escapeTelegramHtml(key)}:</b> ${escapeTelegramHtml(value)}`),
     `💰 <b>Amount:</b> $${Number(order.price).toFixed(2)}${order.couponCode ? ` (coupon ${escapeTelegramHtml(order.couponCode)})` : ""}`,
-    `💳 <b>Paid with:</b> ${escapeTelegramHtml(order.paymentMethod)}`,
-    order.userEmail ? `👤 <b>Buyer:</b> ${escapeTelegramHtml(order.userEmail)}` : "👤 <b>Buyer:</b> Guest",
+    `👤 <b>Buyer:</b> ${order.userEmail ? escapeTelegramHtml(order.userEmail) : "Guest"}`,
+    `⚙️ <b>Mode:</b> ${MODES[order.productType] ?? escapeTelegramHtml(order.productType)} · ${escapeTelegramHtml(order.paymentMethod)}`,
     "━━━━━━━━━━━━━━━━━━",
     `🆔 <b>Order ID:</b> <code>${escapeTelegramHtml(order.id)}</code>`,
-    finalLine,
+    finalStatus ? FINAL_STATUS_LINES[finalStatus] : STATUS_LINES[kind],
   ];
+  if (finalStatus && order.refundRequired) lines.push("💸 <b>Refund required (manual)</b>");
+  if (finalStatus) lines.push("🕐 <i>Updated by admin</i>");
   return lines.join("\n");
 }
 
-export function orderButtons(order: Pick<Order, "id">, kind: OrderAlertKind) {
-  const cancel = { text: "❌ Cancel", callback_data: `ord-cancel:${order.id}` };
-  if (kind === "delivered") return [[cancel]];
-  return [[{ text: "✅ Complete", callback_data: `ord-complete:${order.id}` }, cancel]];
+/** Same two buttons on every order, like delykastore. */
+export function orderButtons(order: Pick<Order, "id">, _kind?: OrderAlertKind) {
+  return [[
+    { text: "✅ Complete", callback_data: `ord-complete:${order.id}` },
+    { text: "❌ Cancel", callback_data: `ord-cancel:${order.id}` },
+  ]];
 }
 
-/** Reads button data. Buttons on messages sent before this change (`manual-complete` / `manual-failed`) still work. */
+/**
+ * Reads button data. Also accepts delykastore's `complete:<id>` / `cancel:<id>` and this app's older
+ * `manual-complete` / `manual-failed`, so buttons on earlier messages keep working.
+ */
 export function parseOrderCallback(data: string): { action: "complete" | "cancel"; orderId: string } | null {
-  const match = data.match(/^(ord|manual)-(complete|cancel|failed):([0-9a-f-]{36})$/i);
+  const match = data.match(/^(?:(?:ord|manual)-)?(complete|cancel|failed):([0-9a-f-]{36})$/i);
   if (!match) return null;
-  return { action: match[2].toLowerCase() === "complete" ? "complete" : "cancel", orderId: match[3].toLowerCase() };
+  return { action: match[1].toLowerCase() === "complete" ? "complete" : "cancel", orderId: match[2].toLowerCase() };
 }
 
 async function telegramRequest<T>(method: string, body: Record<string, unknown>): Promise<T> {

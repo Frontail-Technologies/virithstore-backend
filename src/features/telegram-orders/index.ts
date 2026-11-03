@@ -58,10 +58,15 @@ export const telegramOrdersFeature = new Elysia({ prefix: "/integrations/telegra
       }
 
       if (result.changed) {
+        // Delykastore's confirmations; a paid cancel also reminds the admin to refund.
+        const done = parsed.action === "complete" ? "✅ Order marked as Complete!" : "❌ Order marked as Cancelled!";
         const refund = result.order.refundRequired ? " Refund required: return the money manually." : "";
-        await answer(`Order ${result.order.status}.${refund}`, Boolean(refund));
+        await answer(`${done}${refund}`, Boolean(refund));
+      } else if (parsed.action === "complete" && result.order.status === "completed") {
+        // Auto-delivered orders are already complete: pressing Complete just confirms and closes the alert.
+        await answer("✅ Order marked as Complete!");
       } else {
-        await answer(result.message ?? `Order is already ${result.order.status}.`, true);
+        await answer(result.message ?? `⚠️ Order already marked as ${result.order.status.toUpperCase()}!`, true);
       }
     } catch (error) {
       console.error("Telegram order action failed:", error);
