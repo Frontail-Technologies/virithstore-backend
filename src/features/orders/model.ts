@@ -40,5 +40,7 @@ export type OrdersQuery = Static<typeof OrdersQuery>;
 export const UpdateOrderStatus = t.Object({
   status: OrderStatus,
   deliveryData: t.Optional(t.Record(t.String(), t.Any())),
+  // Why the order was cancelled or failed; saved on the order and in its log.
+  reason: t.Optional(t.String({ maxLength: 500 })),
 });
 export type UpdateOrderStatus = Static<typeof UpdateOrderStatus>;

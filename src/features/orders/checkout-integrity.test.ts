@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { validateCredentials } from "./credentials";
 import { assertOrderAccess } from "./access";
-import { toPublicOrderStatusDto } from "./mappers";
+import { toOrderStatusDto, toPublicOrderStatusDto } from "./mappers";
+import { hasDeliveredCredentials } from "./status";
 import { createCheckoutToken, verifyCheckoutToken } from "../../libs/jwt";
 import type { HttpError } from "../../libs/http-error";
 import type { Order } from "../../db/schema/orders";
@@ -81,7 +82,7 @@ describe("order-scoped checkout access", () => {
       productType: "digital-service", packageId: "p1", packageName: "Pack", price: "1.00",
       originalPrice: "1.00", couponCode: null, discount: "0.00", status: "pending",
       paymentMethod: "aba-khqr", paymentStatus: "pending", paymentTransactionId: "secret",
-      credentials: { playerId: "secret" }, deliveryData: { password: "secret" }, notes: null,
+      credentials: { playerId: "secret" }, deliveryData: { password: "secret" }, notes: null, refundRequired: false,
       telegramChatId: null, telegramMessageId: null, telegramNotifiedAt: null,
       couponRedeemedAt: null, fulfilledAt: null, userEmail: "secret@example.com", createdAt: new Date(), updatedAt: new Date(),
     } satisfies Order);
@@ -89,5 +90,41 @@ describe("order-scoped checkout access", () => {
     expect(dto).not.toHaveProperty("deliveryData");
     expect(dto).not.toHaveProperty("paymentTransactionId");
     expect(dto).not.toHaveProperty("userEmail");
+  });
+});
+
+describe("buyer order DTO", () => {
+  const base = {
+    id: "44444444-4444-4444-8444-444444444444", userId: "user-1", orderNumber: "ORD-2", productId: null,
+    productName: "Netflix", productImage: null, productType: "account", packageId: "m1", packageName: "1 month",
+    price: "3.00", originalPrice: "3.00", couponCode: null, discount: "0.00", status: "pending" as Order["status"],
+    paymentMethod: "aba-khqr", paymentStatus: "pending" as Order["paymentStatus"], paymentTransactionId: "TXN1",
+    credentials: {}, deliveryData: { reservedAccountId: "55555555-5555-4555-8555-555555555555" } as unknown, notes: null,
+    refundRequired: false, telegramChatId: null, telegramMessageId: null, telegramNotifiedAt: null,
+    couponRedeemedAt: null, fulfilledAt: null, userEmail: null, createdAt: new Date(), updatedAt: new Date(),
+  } satisfies Order;
+
+  test("never exposes the internal account hold of an unpaid order", () => {
+    expect(toOrderStatusDto(base).deliveredCredentials).toBeNull();
+  });
+
+  test("hides delivery while a paid order still waits for an account", () => {
+    expect(toOrderStatusDto({ ...base, paymentStatus: "paid", deliveryData: null }).deliveredCredentials).toBeNull();
+  });
+
+  test("shows credentials once the order is completed", () => {
+    const delivered = { email: "a@b.com", password: "pw", additionalInfo: null };
+    expect(toOrderStatusDto({ ...base, paymentStatus: "paid", status: "completed", deliveryData: delivered }).deliveredCredentials)
+      .toEqual(delivered);
+  });
+
+  test("tells the buyer a cancelled paid order is waiting for a refund", () => {
+    expect(toOrderStatusDto({ ...base, paymentStatus: "paid", status: "cancelled", refundRequired: true }).refundRequired).toBe(true);
+  });
+
+  test("an account hold placeholder does not count as delivered credentials", () => {
+    expect(hasDeliveredCredentials({ reservedAccountId: "x" })).toBe(false);
+    expect(hasDeliveredCredentials({ email: " " })).toBe(false);
+    expect(hasDeliveredCredentials({ email: "a@b.com", password: "pw" })).toBe(true);
   });
 });

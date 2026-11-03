@@ -1,33 +1,35 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../db/client";
-import { accountsVault } from "../../db/schema/accountsVault";
 import { couponReservations, coupons } from "../../db/schema/coupons";
 import { orders } from "../../db/schema/orders";
 import { products } from "../../db/schema/products";
-import { conflict, notFound } from "../../libs/http-error";
+import { notFound } from "../../libs/http-error";
 import { recordOrderLog } from "../order-logs/log";
 import { processOrderReferral } from "../referrals/service";
 import { grantSpinCredit } from "../spin/service";
-import { sendManualOrderNotification } from "../../libs/telegram-orders";
+import { claimAccount, findHeldAccount, releaseHolds, sellAccount } from "./inventory";
+import { notifyPaidOrder } from "./notify";
 
 type Order = typeof orders.$inferSelect;
 type ReservedDelivery = { reservedAccountId?: string } | null;
 
 /**
  * Runs once payment is verified. Locks the order so a duplicate webhook can't fulfil it twice, hands over the
- * account reserved at checkout (digital services complete immediately) and redeems the coupon reservation.
+ * account held at checkout (digital services complete immediately) and redeems the coupon reservation.
  * Safe to call repeatedly: later calls return the already-fulfilled order untouched.
+ *
+ * Verified money always wins: an order that was cancelled or expired before the payment landed is still marked
+ * paid. If its account is gone it waits for an admin, who is alerted on Telegram.
  */
 export async function fulfillOrder(orderId: string): Promise<Order> {
   const result = await db.transaction(async (tx) => {
     const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).for("update").limit(1);
     if (!order) throw notFound("Order not found");
-    if (order.paymentStatus === "paid") return { order, newlyPaid: false, manual: order.status === "processing" };
-    if (["cancelled", "failed"].includes(order.status)) throw conflict("Order is not payable");
+    if (order.paymentStatus === "paid") return { order, newlyPaid: false };
+    const revived = ["cancelled", "failed"].includes(order.status);
 
     let deliveryData = order.deliveryData;
     let status: "completed" | "pending" | "processing" = "completed";
-    let manual = false;
 
     if (order.productType === "digital-service" && order.productId) {
       const [product] = await tx
@@ -35,28 +37,21 @@ export async function fulfillOrder(orderId: string): Promise<Order> {
         .from(products)
         .where(eq(products.id, order.productId))
         .limit(1);
-      manual = product?.isAutoDelivery === false;
-      if (manual) status = "processing";
+      if (product?.isAutoDelivery === false) status = "processing";
     }
 
     if (order.productType === "account") {
-      const reservedAccountId = (order.deliveryData as ReservedDelivery)?.reservedAccountId;
-      const [account] = reservedAccountId
-        ? await tx
-            .select()
-            .from(accountsVault)
-            .where(and(eq(accountsVault.id, reservedAccountId), eq(accountsVault.isActive, true), eq(accountsVault.isReserved, true)))
-            .limit(1)
-        : [];
+      // Only the account this order still holds. If the hold was taken over by another checkout, use any free one.
+      const heldId = (order.deliveryData as ReservedDelivery)?.reservedAccountId;
+      const account = (await findHeldAccount(tx, heldId, order.id))
+        ?? (order.productId ? await claimAccount(tx, order.productId, order.packageId, order.id) : null);
 
       if (!account) {
-        // Paid, but the reservation expired or was taken: stays pending for an admin to assign a replacement.
+        // Paid but nothing left to deliver: stays pending, and the admin gets a "needs account" alert.
         status = "pending";
+        deliveryData = null;
       } else {
-        await tx
-          .update(accountsVault)
-          .set({ isActive: false, isReserved: false, reservedExpiry: null, updatedAt: new Date() })
-          .where(and(eq(accountsVault.id, account.id), eq(accountsVault.isActive, true)));
+        await sellAccount(tx, account.id);
         deliveryData = { email: account.email, password: account.password, additionalInfo: account.additionalInfo };
       }
     }
@@ -70,10 +65,10 @@ export async function fulfillOrder(orderId: string): Promise<Order> {
         .limit(1);
       if (reservation) {
         const [coupon] = await tx.select().from(coupons).where(eq(coupons.id, reservation.couponId)).for("update").limit(1);
-        if (!coupon || (coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit)) {
-          throw conflict("Coupon capacity is no longer available");
+        // Capacity was checked at checkout. The buyer has paid the discounted price, so never undo the payment here.
+        if (coupon) {
+          await tx.update(coupons).set({ usedCount: sql`${coupons.usedCount} + 1`, updatedAt: paidAt }).where(eq(coupons.id, coupon.id));
         }
-        await tx.update(coupons).set({ usedCount: sql`${coupons.usedCount} + 1`, updatedAt: paidAt }).where(eq(coupons.id, coupon.id));
         await tx
           .update(couponReservations)
           .set({ status: "redeemed", redeemedAt: paidAt })
@@ -88,12 +83,13 @@ export async function fulfillOrder(orderId: string): Promise<Order> {
         status,
         deliveryData,
         couponRedeemedAt: order.couponCode ? paidAt : null,
-        fulfilledAt: status === "completed" || (order.productType === "account" && status === "pending") ? paidAt : null,
+        fulfilledAt: status === "completed" ? paidAt : null,
+        notes: revived ? "Payment arrived after the order was closed" : order.notes,
         updatedAt: paidAt,
       })
       .where(eq(orders.id, order.id))
       .returning();
-    return { order: fulfilled, newlyPaid: true, manual };
+    return { order: fulfilled, newlyPaid: true };
   });
 
   if (!result.newlyPaid) return result.order;
@@ -113,27 +109,7 @@ export async function fulfillOrder(orderId: string): Promise<Order> {
     grantRewards(order),
   ]);
 
-  if (result.manual) {
-    try {
-      const sent = await sendManualOrderNotification(order);
-      if (sent) {
-        const [notified] = await db
-          .update(orders)
-          .set({
-            telegramChatId: sent.chatId,
-            telegramMessageId: sent.messageId,
-            telegramNotifiedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(orders.id, order.id))
-          .returning();
-        return notified ?? order;
-      }
-    } catch (error) {
-      console.error("Manual-order Telegram notification failed:", error);
-    }
-  }
-  return order;
+  return (await notifyPaidOrder(order)) ?? order;
 }
 
 /** Spin credit and referral commission: failures are logged, never allowed to undo a paid order. */
@@ -152,29 +128,58 @@ async function grantRewards(order: Order) {
   }
 }
 
-/** Marks an unpaid order failed and releases its reserved account and coupon capacity. */
-export async function failOrder(orderId: string, reason: string) {
+/**
+ * Closes an unpaid order and gives its held account and coupon capacity back. Paid orders are never touched here.
+ * Returns `changed: false` when the order was already paid or closed.
+ */
+export async function releaseUnpaidOrder(
+  orderId: string,
+  reason: string,
+  finalStatus: "failed" | "cancelled",
+  performedBy: string,
+): Promise<{ order: Order | null; changed: boolean }> {
   return db.transaction(async (tx) => {
     const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).for("update").limit(1);
-    if (!order || order.paymentStatus === "paid") return order ?? null;
+    if (!order) return { order: null, changed: false };
+    if (order.paymentStatus === "paid" || ["cancelled", "failed"].includes(order.status)) return { order, changed: false };
 
-    const reservedAccountId = (order.deliveryData as ReservedDelivery)?.reservedAccountId;
-    if (reservedAccountId) {
-      await tx
-        .update(accountsVault)
-        .set({ isReserved: false, reservedExpiry: null, updatedAt: new Date() })
-        .where(and(eq(accountsVault.id, reservedAccountId), eq(accountsVault.isActive, true)));
-    }
+    await releaseHolds(tx, orderId);
     await tx
       .update(couponReservations)
       .set({ status: "released" })
       .where(and(eq(couponReservations.orderId, orderId), eq(couponReservations.status, "reserved")));
 
-    const [failed] = await tx
+    const [closed] = await tx
       .update(orders)
-      .set({ paymentStatus: "failed", status: "failed", notes: reason, updatedAt: new Date() })
+      .set({ paymentStatus: "failed", status: finalStatus, notes: reason, updatedAt: new Date() })
       .where(eq(orders.id, orderId))
       .returning();
-    return failed;
+    await recordOrderLog({
+      orderId,
+      action: finalStatus === "cancelled" ? "UNPAID_ORDER_CANCELLED" : "UNPAID_ORDER_FAILED",
+      performedBy,
+      details: { reason },
+    }, tx);
+    return { order: closed, changed: true };
+  });
+}
+
+/** Payment was declined: closes the order and releases its account and coupon capacity. */
+export async function failOrder(orderId: string, reason: string) {
+  return (await releaseUnpaidOrder(orderId, reason, "failed", "PayWay")).order;
+}
+
+/**
+ * The buyer closed the payment popup. The account goes back to stock straight away, but the order stays payable:
+ * the QR may already be scanned. If that payment lands, fulfilment takes any free account. The expiry sweeper
+ * closes the order once the payment window is over.
+ */
+export async function releaseOrderHold(orderId: string) {
+  return db.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).for("update").limit(1);
+    if (!order || order.paymentStatus !== "pending" || order.status !== "pending") return order ?? null;
+    await releaseHolds(tx, orderId);
+    await recordOrderLog({ orderId, action: "CHECKOUT_ABANDONED", performedBy: "Buyer", details: {} }, tx);
+    return order;
   });
 }

@@ -13,7 +13,9 @@ export function toOrderStatusDto(order: Order) {
     status: order.status,
     paymentStatus: order.paymentStatus,
     paymentMethod: order.paymentMethod,
-    deliveredCredentials: order.paymentStatus === "paid" ? order.deliveryData : null,
+    // Only real delivered details: never the internal `{ reservedAccountId }` placeholder.
+    deliveredCredentials: order.paymentStatus === "paid" && order.status === "completed" ? order.deliveryData : null,
+    refundRequired: order.refundRequired,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
   };

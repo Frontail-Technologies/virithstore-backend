@@ -9,6 +9,7 @@ import { toOrderStatusDto, toPublicOrderStatusDto } from "./mappers";
 import { CreateOrder, OrderNumberParam, OrdersQuery, UpdateOrderStatus } from "./model";
 import { getLiveFeed, getOrder, getOrderByNumber, listOrders, listUserOrders } from "./queries";
 import { syncPaywayPayment } from "../payment/service";
+import { releaseOrderHold } from "./fulfil";
 import { updateOrderStatus } from "./status";
 
 const CHECKOUT_TOKEN_HEADER = "x-checkout-token";
@@ -35,7 +36,7 @@ export const ordersFeature = new Elysia({ prefix: "/orders", name: "feature.orde
   })
   .get("/live", async () => ok(await getLiveFeed()))
   // Buyer
-  .get("/my-orders", async ({ user }) => ok(await listUserOrders(user.id)), { auth: true })
+  .get("/my-orders", async ({ user }) => ok((await listUserOrders(user.id)).map(toOrderStatusDto)), { auth: true })
   // Admin
   .get("/query", async ({ query }) => ok(await listOrdersForDashboard(query)), { admin: true, query: OrdersQuery })
   .get("/admin/analytics", async () => ok(await getOrderAnalytics()), { admin: true })
@@ -74,6 +75,17 @@ export const ordersFeature = new Elysia({ prefix: "/orders", name: "feature.orde
         updatedAt: current.updatedAt,
         expired,
       });
+    },
+    { optionalUser: true, params: IdParam },
+  )
+  // The buyer closed the payment popup: the held account goes back to stock, the order stays payable until it expires.
+  .post(
+    "/:id/release",
+    async ({ params, user, request }) => {
+      const order = await getOrder(params.id);
+      assertOrderAccess(order, user?.id, request.headers.get(CHECKOUT_TOKEN_HEADER) || undefined);
+      await releaseOrderHold(order.id);
+      return ok({ orderId: order.id }, "Checkout released");
     },
     { optionalUser: true, params: IdParam },
   )

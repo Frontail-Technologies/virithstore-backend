@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, jsonb, numeric, pgEnum, integer } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, jsonb, numeric, pgEnum, integer, boolean } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { products } from "./products";
 
@@ -39,6 +39,8 @@ export const orders = pgTable("orders", {
   credentials: jsonb("credentials").default({}).notNull(), // URL, Username, or Account fields
   deliveryData: jsonb("delivery_data"), // Account details / delivery secret
   notes: text("notes"),
+  // Paid order cancelled by an admin: the money must be returned by hand.
+  refundRequired: boolean("refund_required").default(false).notNull(),
   telegramChatId: varchar("telegram_chat_id", { length: 100 }),
   telegramMessageId: integer("telegram_message_id"),
   telegramNotifiedAt: timestamp("telegram_notified_at"),

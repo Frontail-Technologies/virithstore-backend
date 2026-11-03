@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { db } from "../../db/client";
 import { accountsVault } from "../../db/schema/accountsVault";
 import { products } from "../../db/schema/products";
@@ -90,11 +90,8 @@ async function withAccountInventory<T extends InventoryProduct>(productRows: T[]
       availableStock: sql<number>`count(*)::int`,
     })
     .from(accountsVault)
-    .where(and(
-      inArray(accountsVault.productId, accountProductIds),
-      eq(accountsVault.isActive, true),
-      or(eq(accountsVault.isReserved, false), lt(accountsVault.reservedExpiry, new Date())),
-    ))
+    // Unsold accounts, held or not: stock only drops when an account is actually sold (unpaid checkouts don't cut it).
+    .where(and(inArray(accountsVault.productId, accountProductIds), eq(accountsVault.isActive, true)))
     .groupBy(accountsVault.productId, accountsVault.costId);
 
   const counts = new Map<string, number>();

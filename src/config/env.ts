@@ -35,9 +35,12 @@ export const env = {
   // Shared secret the Next.js server sends to /auth/oauth after NextAuth has verified the provider login.
   OAUTH_SHARED_SECRET: required("OAUTH_SHARED_SECRET", "test-only-oauth-shared-secret-0000", 32),
   TELEGRAM_BOT_TOKEN: Bun.env.TELEGRAM_BOT_TOKEN || "",
-  TELEGRAM_ORDER_BOT_TOKEN: Bun.env.TELEGRAM_ORDER_BOT_TOKEN?.trim() || "",
+  // Order alerts may use their own bot; by default they share the login bot (as delykastore does).
+  TELEGRAM_ORDER_BOT_TOKEN: Bun.env.TELEGRAM_ORDER_BOT_TOKEN?.trim() || Bun.env.TELEGRAM_BOT_TOKEN?.trim() || "",
   TELEGRAM_ORDER_CHAT_ID: Bun.env.TELEGRAM_ORDER_CHAT_ID?.trim() || "",
   TELEGRAM_ORDER_WEBHOOK_SECRET: Bun.env.TELEGRAM_ORDER_WEBHOOK_SECRET?.trim() || "",
+  // Optional comma-separated Telegram user ids allowed to press order buttons. Empty: anyone in the order chat.
+  TELEGRAM_ORDER_ADMIN_IDS: (Bun.env.TELEGRAM_ORDER_ADMIN_IDS || "").split(",").map((id) => id.trim()).filter(Boolean),
   CLOUDINARY_CLOUD_NAME: Bun.env.CLOUDINARY_CLOUD_NAME || "",
   CLOUDINARY_API_KEY: Bun.env.CLOUDINARY_API_KEY || "",
   CLOUDINARY_API_SECRET: Bun.env.CLOUDINARY_API_SECRET || "",
