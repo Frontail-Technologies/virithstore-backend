@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "../../db/client";
 import { orders } from "../../db/schema/orders";
 import { notFound } from "../../libs/http-error";
@@ -42,7 +42,7 @@ export async function listOrders(query: OrdersQuery) {
   return { items, meta: toPageMeta(count, page, limit) };
 }
 
-/** Recent orders with masked ids for the storefront "live purchases" ticker. */
+/** Recent orders with masked ids for the storefront live feed. Masked ids only: no buyer data leaves here. */
 export async function getLiveFeed(limit = 25) {
   const rows = await db
     .select({
@@ -56,7 +56,8 @@ export async function getLiveFeed(limit = 25) {
       createdAt: orders.createdAt,
     })
     .from(orders)
-    .where(and(eq(orders.status, "completed"), eq(orders.paymentStatus, "paid")))
+    // Public activity: delivered, in progress, awaiting payment and failed. Cancelled (expired checkouts) are left out.
+    .where(inArray(orders.status, ["completed", "processing", "pending", "failed"]))
     .orderBy(desc(orders.createdAt))
     .limit(limit);
   return rows.map(toLiveFeedItem);
